@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagrama de Base de Datos - Asesoría Seguros</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        h1 { text-align: center; color: #333; }
+        p.subtitle { text-align: center; color: #666; margin-bottom: 20px; }
+        .mermaid { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Estructura de Base de Datos y Relaciones</h1>
+    <p class="subtitle">Sistema de Monitoreo de Reclamos - Asesoría Seguros</p>
+    <div class="mermaid">
+erDiagram
+    CLIENTES {
+        string id PK
+        string dni UK
+        string nombre_completo
+        string apellidos_completos
+        string fecha_nacimiento
+        string telefono1
+        string telefono2
+        string email1
+        string email2
+        longtext dni_frontal
+        longtext dni_posterior
+        string direccion
+        string gps_latitud
+        string gps_longitud
+        text observaciones
+        string creado_por
+        string modificado_por
+        string equipo_registro
+        datetime fecha_creacion
+        datetime fecha_modificacion
+    }
+
+    BANCOS {
+        string id PK
+        string nombre
+        string creado_por
+        datetime fecha_creacion
+    }
+
+    SEGUROS {
+        string id PK
+        string nombre
+        string descripcion
+        string banco_id FK
+        longtext poliza
+        string creado_por
+        datetime fecha_creacion
+    }
+
+    COBERTURAS {
+        string id PK
+        string seguro_id FK
+        string nombre
+        string descripcion
+        decimal monto
+        string creado_por
+        datetime fecha_creacion
+    }
+
+    CUENTAS_BANCARIAS {
+        string id PK
+        string cliente_id FK
+        string banco_id FK
+        string moneda
+        string numero_cuenta
+        string creado_por
+        datetime fecha_creacion
+    }
+
+    TARJETAS {
+        string id PK
+        string cliente_id FK
+        string banco_id FK
+        string seguro_id FK
+        string numero
+        string numero_cuenta
+        string numero_cci
+        string moneda
+        string comentario
+        boolean activo
+        longtext evidencia_seguro
+        string creado_por
+        string modificado_por
+        datetime fecha_creacion
+        datetime fecha_modificacion
+    }
+
+    TARJETAS_CUENTAS {
+        string tarjeta_id FK
+        string cuenta_id FK
+    }
+
+    SINIESTROS {
+        string id PK
+        string cliente_id FK
+        string fecha
+        text denuncia_descripcion
+        longtext denuncia_archivo
+        string denuncia_formato
+        string creado_por
+        datetime fecha_creacion
+    }
+
+    RECLAMOS {
+        string id PK
+        string siniestro_id FK
+        string banco_id FK
+        string fecha
+        text observaciones
+        longtext evidencia
+        decimal monto_total
+        string estado
+        string creado_por
+        string modificado_por
+        datetime fecha_creacion
+        datetime fecha_modificacion
+    }
+
+    DETALLE_RECLAMOS {
+        string id PK
+        string reclamo_id FK
+        string cobertura_id FK
+        decimal monto
+        string moneda
+        decimal tipo_cambio
+        decimal monto_soles
+        longtext evidencia
+        string creado_por
+        datetime fecha_creacion
+    }
+
+    EVENTOS_RECLAMO {
+        string id PK
+        string reclamo_id FK
+        datetime fecha
+        datetime fecha_registro
+        string descripcion
+        text observacion
+        longtext evidencia
+        int dias_espera
+        string tipo_dias
+        datetime fecha_vencimiento
+        string evento_origen_id FK
+        string creado_por
+        datetime fecha_creacion
+    }
+
+    ROLES {
+        string id PK
+        string nombre
+        string descripcion
+    }
+
+    USUARIOS {
+        string id PK
+        string usuario UK
+        string clave
+        string nombre_completo
+        string rol_id FK
+        boolean activo
+        string creado_por
+        datetime fecha_creacion
+    }
+
+    PERMISOS_ROL {
+        string id PK
+        string rol_id FK
+        string pantalla
+        boolean acceso
+    }
+
+    ADELANTOS {
+        string id PK
+        string cliente_id FK
+        string fecha
+        decimal monto
+        string moneda
+        decimal tipo_cambio
+        decimal monto_soles
+        string concepto
+        text observaciones
+        longtext evidencia
+        string creado_por
+        string modificado_por
+        datetime fecha_creacion
+        datetime fecha_modificacion
+    }
+
+    CLIENTES ||--o{ CUENTAS_BANCARIAS : "posee"
+    CLIENTES ||--o{ TARJETAS : "tiene"
+    CLIENTES ||--o{ SINIESTROS : "reporta"
+    CLIENTES ||--o{ ADELANTOS : "recibe"
+
+    BANCOS ||--o{ SEGUROS : "ofrece"
+    BANCOS ||--o{ CUENTAS_BANCARIAS : "contiene"
+    BANCOS ||--o{ TARJETAS : "emite"
+    BANCOS ||--o{ RECLAMOS : "reclamado en"
+
+    SEGUROS ||--o{ COBERTURAS : "incluye"
+    SEGUROS ||--o{ TARJETAS : "asegura"
+
+    TARJETAS ||--o{ TARJETAS_CUENTAS : "vinculada"
+    CUENTAS_BANCARIAS ||--o{ TARJETAS_CUENTAS : "asociada"
+
+    SINIESTROS ||--o{ RECLAMOS : "genera"
+
+    RECLAMOS ||--o{ DETALLE_RECLAMOS : "tiene detalles"
+    RECLAMOS ||--o{ EVENTOS_RECLAMO : "tiene eventos"
+
+    COBERTURAS ||--o{ DETALLE_RECLAMOS : "aplicada en"
+
+    EVENTOS_RECLAMO ||--o{ EVENTOS_RECLAMO : "origen de"
+
+    ROLES ||--o{ USUARIOS : "asignado a"
+    ROLES ||--o{ PERMISOS_ROL : "tiene permisos"
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default', er: { useMaxWidth: false } });
+    </script>
+</body>
+</html>
