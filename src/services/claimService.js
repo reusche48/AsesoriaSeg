@@ -44,13 +44,6 @@ export function createClaim(incidentId, bankId, date, observations, evidence) {
         }
     }
 
-    // Validar que el banco esté vinculado al cliente del siniestro
-    if (incident && bank) {
-        if (bank.clienteId !== incident.clienteId) {
-            errors.push({ field: 'bancoId', code: 'BANK_NOT_LINKED', message: 'El banco no está vinculado al cliente del siniestro.' });
-        }
-    }
-
     // Validar fecha
     if (!date) {
         errors.push({ field: 'fecha', code: 'REQUIRED_FIELD', message: 'La fecha del reclamo es requerida.' });
@@ -128,6 +121,12 @@ export function addClaimDetail(claimId, coverageId, amount, moneda, tipoCambio, 
         montoSoles: montoSoles,
         evidencia: evidence || null,
     });
+
+    // Cambiar estado a "En Proceso" si estaba "Pendiente"
+    const claim = claimRepository.getById(claimId);
+    if (claim && claim.estado === 'Pendiente') {
+        claimRepository.update(claimId, { estado: 'En Proceso' });
+    }
 
     const claimTotal = calculateClaimTotal(claimId);
     return { success: true, detail, claimTotal };

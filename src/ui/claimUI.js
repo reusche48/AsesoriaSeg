@@ -4,37 +4,38 @@ import { claimDetailRepository } from '../repositories/claimDetailRepository.js'
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
+import { cardRepository } from '../repositories/cardRepository.js';
 import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { coverageRepository } from '../repositories/coverageRepository.js';
 import { openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
+import { initStorage } from '../storage.js';
 
 let selectedDetailEvidenceDataUrl = null;
 
 export function renderClaimSection(container) {
     selectedDetailEvidenceDataUrl = null;
 
-    const incidents = incidentRepository.getAll();
+    const clients = clientRepository.getAll();
 
     container.innerHTML = `
         <div class="section">
             <h2 class="section-title">Detalle de Reclamos</h2>
+            <button type="button" class="btn btn-secondary" id="refresh-data-btn" style="float:right;">🔄 Refrescar Datos</button>
             <div class="form-row">
                 <div class="form-group">
-                    <label for="claim-incident-select">Siniestro *</label>
-                    <select id="claim-incident-select" aria-label="Seleccionar siniestro">
-                        <option value="">-- Seleccione un siniestro --</option>
-                        ${incidents.map(inc => {
-                            const cl = clientRepository.getById(inc.clienteId);
-                            const clName = cl ? `${cl.nombreCompleto} ${cl.apellidosCompletos}` : 'Desconocido';
-                            return `<option value="${esc(inc.id)}">${formatDate(inc.fecha)} — ${esc(clName)}</option>`;
+                    <label for="claim-client-select">Cliente *</label>
+                    <select id="claim-client-select" aria-label="Seleccionar cliente">
+                        <option value="">-- Seleccione un cliente --</option>
+                        ${clients.map(cl => {
+                            return `<option value="${esc(cl.id)}">${esc(cl.nombreCompleto)} ${esc(cl.apellidosCompletos)} (${esc(cl.dni)})</option>`;
                         }).join('')}
                     </select>
                 </div>
                 <div class="form-group">
                     <label for="claim-bank-select">Banco (Reclamo) *</label>
                     <select id="claim-bank-select" aria-label="Seleccionar banco/reclamo">
-                        <option value="">-- Primero seleccione un siniestro --</option>
+                        <option value="">-- Primero seleccione un cliente --</option>
                     </select>
                 </div>
             </div>
@@ -49,56 +50,144 @@ export function renderClaimSection(container) {
         </div>
     `;
 
-    setupIncidentSelector(container);
+    setupClientSelector(container);
     setupBankSelector(container);
 
     container.querySelector('#claim-detail-add-btn').addEventListener('click', () => {
         const claimId = container.querySelector('#claim-bank-select').value;
         if (claimId) openDetailModal(container, claimId, null);
     });
+
+    container.querySelector('#refresh-data-btn').addEventListener('click', async () => {
+        const btn = container.querySelector('#refresh-data-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Refrescando...';
+        
+        try {
+            await initStorage();
+            alert('Datos actualizados correctamente. La página se recargará.');
+            window.location.reload();
+        } catch (error) {
+            alert('Error al refrescar datos: ' + error.message);
+            btn.disabled = false;
+            btn.textContent = '🔄 Refrescar Datos';
+        }
+    });
 }
 
-function setupIncidentSelector(container) {
-    const incSelect = container.querySelector('#claim-incident-select');
-    incSelect.addEventListener('change', () => {
-        const incidentId = incSelect.value;
+function setupClientSelector(container) {
+    const clientSelect = container.querySelector('#claim-client-select');
+    clientSelect.addEventListener('change', () => {
+        const clientId = clientSelect.value;
         const bankSelect = container.querySelector('#claim-bank-select');
         container.querySelector('#claim-detail-list-section').style.display = 'none';
         container.querySelector('#claim-info').innerHTML = '';
 
-        if (!incidentId) {
-            bankSelect.innerHTML = '<option value="">-- Primero seleccione un siniestro --</option>';
+        if (!clientId) {
+            bankSelect.innerHTML = '<option value="">-- Primero seleccione un cliente --</option>';
             return;
         }
 
-        const claims = claimRepository.findByIncidentId(incidentId);
-        if (claims.length === 0) {
-            bankSelect.innerHTML = '<option value="">-- No hay bancos registrados --</option>';
+        // Obtener bancos del cliente (de sus tarjetas)
+        const clientCards = cardRepository.findByClientId(clientId);
+        console.log('🔍 Tarjetas del cliente:', clientCards);
+        
+        const clientBankIds = [...new Set(clientCards.map(c => c.bancoId))];
+        console.log('🏦 Bancos del cliente:', clientBankIds);
+        
+        if (clientBankIds.length === 0) {
+            bankSelect.innerHTML = '<option value="">-- El cliente no tiene tarjetas registradas. Presione "Refrescar Datos" --</option>';
             return;
         }
 
-        bankSelect.innerHTML = `<option value="">-- Seleccione un banco --</option>` +
-            claims.map(c => {
-                const bank = bankRepository.getById(c.bancoId);
-                const bankName = bank ? esc(bank.nombre) : 'Desconocido';
-                return `<option value="${esc(c.id)}">${bankName} — [${esc(c.estado)}]</option>`;
-            }).join('');
+        // Obtener siniestros del cliente
+        const clientIncidents = incidentRepository.getAll().filter(inc => inc.clienteId === clientId);
+        console.log('📋 Siniestros del cliente:', clientIncidents);
+
+        if (clientIncidents.length === 0) {
+            bankSelect.innerHTML = '<option value="">-- El cliente no tiene siniestros registrados --</option>';
+            return;
+        }
+
+        // Obtener todos los reclamos del cliente
+        const clientIncidentIds = clientIncidents.map(inc => inc.id);
+        const allClaims = claimRepository.getAll();
+        const clientClaims = allClaims.filter(claim => clientIncidentIds.includes(claim.siniestroId));
+        
+        console.log('✅ Reclamos del cliente:', clientClaims);
+
+        // Crear opciones: mostrar bancos donde tiene tarjetas
+        const options = clientBankIds.map(bankId => {
+            const bank = bankRepository.getById(bankId);
+            const bankName = bank ? bank.nombre : 'Desconocido';
+            
+            // Buscar si ya existe un reclamo para este banco
+            const existingClaim = clientClaims.find(c => c.bancoId === bankId);
+            
+            if (existingClaim) {
+                const estado = existingClaim.estado ? ` (${existingClaim.estado})` : '';
+                return `<option value="${esc(existingClaim.id)}" data-bank-id="${esc(bankId)}" data-exists="true">${esc(bankName)}${estado}</option>`;
+            } else {
+                return `<option value="" data-bank-id="${esc(bankId)}" data-exists="false">${esc(bankName)} (Nuevo)</option>`;
+            }
+        }).join('');
+
+        bankSelect.innerHTML = `<option value="">-- Seleccione un banco --</option>` + options;
     });
 }
 
 function setupBankSelector(container) {
     const bankSelect = container.querySelector('#claim-bank-select');
-    bankSelect.addEventListener('change', () => {
+    bankSelect.addEventListener('change', async () => {
+        const selectedOption = bankSelect.options[bankSelect.selectedIndex];
         const claimId = bankSelect.value;
-        if (!claimId) {
+        const bankId = selectedOption.getAttribute('data-bank-id');
+        const exists = selectedOption.getAttribute('data-exists') === 'true';
+        
+        if (!bankId) {
             container.querySelector('#claim-detail-list-section').style.display = 'none';
             container.querySelector('#claim-info').innerHTML = '';
             return;
         }
 
-        updateClaimInfo(container, claimId);
+        const clientId = container.querySelector('#claim-client-select').value;
+
+        // Si no existe reclamo, crear uno automáticamente
+        if (!exists) {
+            // Buscar el primer siniestro del cliente
+            const clientIncidents = incidentRepository.getAll().filter(inc => inc.clienteId === clientId);
+            if (clientIncidents.length === 0) {
+                alert('El cliente no tiene siniestros registrados. Debe crear un siniestro primero.');
+                bankSelect.value = '';
+                return;
+            }
+
+            const incident = clientIncidents[0]; // Usar el primer siniestro
+            const today = new Date().toISOString().split('T')[0];
+
+            // Crear reclamo automáticamente
+            const { createClaim } = await import('../services/claimService.js');
+            const result = createClaim(incident.id, bankId, today, null, null);
+            
+            if (!result.success) {
+                alert('Error al crear reclamo: ' + result.errors.map(e => e.message).join(', '));
+                bankSelect.value = '';
+                return;
+            }
+
+            // Actualizar el select con el nuevo reclamo
+            selectedOption.value = result.claim.id;
+            selectedOption.setAttribute('data-exists', 'true');
+            selectedOption.textContent = selectedOption.textContent.replace(' (Nuevo)', ' (Pendiente)');
+            bankSelect.value = result.claim.id;
+
+            updateClaimInfo(container, result.claim.id);
+        } else {
+            updateClaimInfo(container, claimId);
+        }
+
         container.querySelector('#claim-detail-list-section').style.display = '';
-        refreshDetailList(container, claimId);
+        refreshDetailList(container, bankSelect.value);
     });
 }
 

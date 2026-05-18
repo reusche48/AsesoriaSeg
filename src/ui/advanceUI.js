@@ -39,7 +39,7 @@ function openAdvForm(container, adv) {
     evidenciaDataUrl = adv?.evidencia || null;
     const clients = clientRepository.getAll();
     const clientOpts = `<option value="">-- Seleccione --</option>` + clients.map(c =>
-        `<option value="${esc(c.id)}" ${adv?.clienteId === c.id ? 'selected' : ''}>${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}</option>`).join('');
+        `<option value="${esc(c.id)}" ${(adv?.clienteId || selectedClientId) === c.id ? 'selected' : ''}>${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}</option>`).join('');
     const today = new Date().toISOString().split('T')[0];
 
     openFormModal({

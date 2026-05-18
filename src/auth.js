@@ -5,7 +5,7 @@
 
 const API_BASE = 'api.php';
 const SESSION_KEY = 'auth_session';
-const SESSION_DURATION = 60 * 60 * 1000; // 1 hora en milisegundos
+const SESSION_DURATION = 3 * 60 * 60 * 1000; // 3 horas en milisegundos
 
 let currentSession = null;
 
@@ -40,7 +40,7 @@ export function logout() {
     localStorage.removeItem(SESSION_KEY);
 }
 
-/** Restaura la sesión desde localStorage. Expira después de 1 hora. */
+/** Restaura la sesión desde localStorage. Expira después de 3 horas. */
 export function restoreSession() {
     try {
         const stored = localStorage.getItem(SESSION_KEY);
