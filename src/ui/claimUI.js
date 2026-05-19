@@ -133,6 +133,12 @@ function setupClientSelector(container) {
         }).join('');
 
         bankSelect.innerHTML = `<option value="">-- Seleccione un banco --</option>` + options;
+
+        // Si solo tiene un banco, seleccionarlo automáticamente
+        if (clientBankIds.length === 1) {
+            bankSelect.selectedIndex = 1;
+            bankSelect.dispatchEvent(new Event('change'));
+        }
     });
 }
 
