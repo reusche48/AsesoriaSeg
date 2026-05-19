@@ -132,6 +132,31 @@ export async function updateEntity(key, id, data) {
 }
 
 /**
+ * Sube un archivo al servidor y retorna la URL relativa.
+ * @param {File} file - Archivo a subir
+ * @returns {Promise<string>} URL relativa del archivo (ej: 'uploads/abc123.pdf')
+ */
+export async function uploadFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const res = await fetch(`${API_BASE}?action=upload`, {
+            method: 'POST',
+            body: formData,
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Error al subir el archivo.');
+        }
+        const data = await res.json();
+        return data.url;
+    } catch (err) {
+        console.error('Error subiendo archivo:', err);
+        throw err;
+    }
+}
+
+/**
  * Elimina una entidad de la API y el caché.
  * @param {string} key - Colección
  * @param {string} id - ID de la entidad

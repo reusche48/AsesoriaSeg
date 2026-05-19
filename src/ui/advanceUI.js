@@ -4,6 +4,7 @@ import { createAdvance, updateAdvance, deleteAdvance } from '../services/advance
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { isAdmin } from '../auth.js';
 import { openFormModal, closeFormModal, showModalFieldErrors, clearModalErrors } from './modalHelper.js';
+import { uploadFile } from '../storage.js';
 
 let selectedClientId = null;
 let evidenciaDataUrl = null;
@@ -80,7 +81,7 @@ function openAdvForm(container, adv) {
             const fileInput = overlay.querySelector('#modal-evidencia');
             fileInput.addEventListener('change', () => {
                 const file = fileInput.files[0];
-                if (file) { const r = new FileReader(); r.onload = () => { evidenciaDataUrl = r.result; }; r.readAsDataURL(file); }
+                if (file) { uploadFile(file).then(url => { evidenciaDataUrl = url; }).catch(err => alert('Error al subir archivo: ' + err.message)); }
             });
         },
     });

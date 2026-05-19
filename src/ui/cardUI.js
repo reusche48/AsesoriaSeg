@@ -5,6 +5,7 @@ import { cardRepository } from '../repositories/cardRepository.js';
 import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { auditLinkHtml, openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, showModalFieldErrors, showModalAlert, clearModalErrors } from './modalHelper.js';
+import { uploadFile } from '../storage.js';
 
 let selectedClientId = null;
 let evidenciaSeguroDataUrl = null;
@@ -123,12 +124,10 @@ function openCardForm(container, card) {
             fileInput.addEventListener('change', () => {
                 const file = fileInput.files[0];
                 if (file) {
-                    const r = new FileReader();
-                    r.onload = () => {
-                        evidenciaSeguroDataUrl = r.result;
+                    uploadFile(file).then(url => {
+                        evidenciaSeguroDataUrl = url;
                         overlay.querySelector('#modal-ev-preview').textContent = '📎 ' + file.name;
-                    };
-                    r.readAsDataURL(file);
+                    }).catch(err => alert('Error al subir archivo: ' + err.message));
                 }
             });
         },

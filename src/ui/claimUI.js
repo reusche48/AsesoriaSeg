@@ -9,7 +9,7 @@ import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { coverageRepository } from '../repositories/coverageRepository.js';
 import { openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
-import { initStorage } from '../storage.js';
+import { initStorage, uploadFile } from '../storage.js';
 
 let selectedDetailEvidenceDataUrl = null;
 
@@ -324,9 +324,7 @@ function openDetailModal(container, claimId, detailId) {
             overlay.querySelector('#modal-claim-evidence').addEventListener('change', (e) => {
                 const file = e.target.files[0];
                 if (file) {
-                    const reader = new FileReader();
-                    reader.onload = () => { selectedDetailEvidenceDataUrl = reader.result; };
-                    reader.readAsDataURL(file);
+                    uploadFile(file).then(url => { selectedDetailEvidenceDataUrl = url; }).catch(err => alert('Error al subir archivo: ' + err.message));
                 } else {
                     selectedDetailEvidenceDataUrl = null;
                 }

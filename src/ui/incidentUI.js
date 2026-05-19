@@ -4,6 +4,7 @@ import { incidentRepository } from '../repositories/incidentRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
+import { uploadFile } from '../storage.js';
 
 /**
  * Módulo UI para registro de siniestros con denuncia policial.
@@ -96,12 +97,17 @@ function openIncidentModal(container, incidentId) {
         submitLabel: editing ? 'Actualizar' : 'Registrar',
         onOpen: (overlay) => {
             const fileInput = overlay.querySelector('#modal-incident-file');
-            fileInput.addEventListener('change', () => {
+            fileInput.addEventListener('change', async () => {
                 const file = fileInput.files[0];
                 if (file) {
-                    const reader = new FileReader();
-                    reader.onload = () => { selectedFileDataUrl = reader.result; selectedFileName = file.name; };
-                    reader.readAsDataURL(file);
+                    try {
+                        selectedFileDataUrl = await uploadFile(file);
+                        selectedFileName = file.name;
+                    } catch (err) {
+                        alert('Error al subir archivo: ' + err.message);
+                        selectedFileDataUrl = null; selectedFileName = null;
+                        fileInput.value = '';
+                    }
                 } else {
                     selectedFileDataUrl = null; selectedFileName = null;
                 }

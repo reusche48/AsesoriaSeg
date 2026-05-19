@@ -3,6 +3,7 @@ import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalFieldErrors, clearModalErrors } from './modalHelper.js';
+import { uploadFile } from '../storage.js';
 
 let polizaDataUrl = null;
 
@@ -51,7 +52,7 @@ function openInsForm(container, ins) {
             const fileInput = overlay.querySelector('#modal-poliza');
             fileInput.addEventListener('change', () => {
                 const file = fileInput.files[0];
-                if (file) { const r = new FileReader(); r.onload = () => { polizaDataUrl = r.result; }; r.readAsDataURL(file); }
+                if (file) { uploadFile(file).then(url => { polizaDataUrl = url; }).catch(err => alert('Error al subir archivo: ' + err.message)); }
             });
         },
     });

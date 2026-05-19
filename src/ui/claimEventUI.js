@@ -5,6 +5,7 @@ import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
+import { uploadFile } from '../storage.js';
 
 let selectedEventEvidenceDataUrl = null;
 
@@ -236,9 +237,7 @@ function openEventModal(container, eventObj) {
             evidenceInput.addEventListener('change', () => {
                 const file = evidenceInput.files[0];
                 if (file) {
-                    const reader = new FileReader();
-                    reader.onload = () => { selectedEventEvidenceDataUrl = reader.result; };
-                    reader.readAsDataURL(file);
+                    uploadFile(file).then(url => { selectedEventEvidenceDataUrl = url; }).catch(err => alert('Error al subir archivo: ' + err.message));
                 } else {
                     selectedEventEvidenceDataUrl = null;
                 }

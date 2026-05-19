@@ -2,6 +2,7 @@ import { registerClient, updateClient, deleteClient } from '../services/clientSe
 import { clientRepository } from '../repositories/clientRepository.js';
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, showModalFieldErrors, clearModalErrors } from './modalHelper.js';
+import { uploadFile } from '../storage.js';
 
 let editingClientId = null;
 let dniFrontalDataUrl = null;
@@ -188,15 +189,17 @@ function openClientForm(container, client) {
 function setupFileInput(overlay, inputSel, previewSel, onLoad, container) {
     const input = overlay.querySelector(inputSel);
     if (!input) return;
-    input.addEventListener('change', () => {
+    input.addEventListener('change', async () => {
         const file = input.files[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onload = () => {
-                onLoad(reader.result);
-                showPreview(overlay, previewSel, reader.result, () => { onLoad(null); });
-            };
-            reader.readAsDataURL(file);
+            try {
+                const url = await uploadFile(file);
+                onLoad(url);
+                showPreview(overlay, previewSel, url, () => { onLoad(null); });
+            } catch (err) {
+                alert('Error al subir archivo: ' + err.message);
+                input.value = '';
+            }
         }
     });
 }

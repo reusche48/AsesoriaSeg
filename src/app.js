@@ -138,7 +138,10 @@ export function openFileViewer(dataUrl, format) {
     const body = document.getElementById('modal-body');
     if (!modal || !body) return;
     const fmt = (format || '').toUpperCase();
-    if (fmt === 'PDF' || dataUrl.startsWith('data:application/pdf')) {
+    const isPdf = fmt === 'PDF'
+        || dataUrl.startsWith('data:application/pdf')
+        || dataUrl.toLowerCase().endsWith('.pdf');
+    if (isPdf) {
         body.innerHTML = `<iframe src="${dataUrl}"></iframe>`;
     } else {
         body.innerHTML = `<img src="${dataUrl}" alt="Archivo">`;

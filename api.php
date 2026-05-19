@@ -488,6 +488,41 @@ if ($action === 'resetPassword' && $method === 'POST') {
     exit;
 }
 
+// ========== UPLOAD DE ARCHIVO ==========
+if ($action === 'upload' && $method === 'POST') {
+    $uploadDir = __DIR__ . '/uploads/';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0755, true);
+    }
+
+    if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+        http_response_code(400);
+        echo json_encode(['error' => 'No se recibió archivo o hubo un error en la subida.']);
+        exit;
+    }
+
+    $file = $_FILES['file'];
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $allowed = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'doc', 'docx', 'xls', 'xlsx'];
+    if (!in_array($ext, $allowed)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Formato de archivo no permitido.']);
+        exit;
+    }
+
+    $filename = bin2hex(random_bytes(16)) . '.' . $ext;
+    $destPath = $uploadDir . $filename;
+
+    if (!move_uploaded_file($file['tmp_name'], $destPath)) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Error al guardar el archivo en el servidor.']);
+        exit;
+    }
+
+    echo json_encode(['url' => 'uploads/' . $filename]);
+    exit;
+}
+
 if (!$collection || !isset($TABLE_MAP[$collection])) {
     http_response_code(404);
     echo json_encode(['error' => 'Colección no encontrada']);
