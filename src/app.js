@@ -53,10 +53,20 @@ const NAV_LABELS = {
     seguimiento: '📊 Seguimiento', alertas: '🔔 Alertas', usuarios: '🔐 Usuarios',
     actividad: '📝 Actividad',
     adelantos: '💵 Adelantos',
-    consultaAdelantos: '🔎 Consulta Adelantos',
-    fichaCliente: '📄 Ficha Cliente',
+    consultaAdelantos: '🔎 Consulta',
+    fichaCliente: '📄 Ficha',
     tarjetasSinSeguro: '🔍 Sin Seguro',
 };
+
+/** Grupos de navegación — cada grupo se muestra como dropdown */
+const NAV_GROUPS = [
+    { key: 'dashboard',  label: '🏠 Inicio' },
+    { label: '👤 Clientes',   items: ['clientes', 'fichaCliente'] },
+    { label: '🏦 Catálogos',  items: ['bancos', 'tarjetas', 'seguros', 'coberturas', 'tarjetasSinSeguro'] },
+    { label: '📑 Reclamos',   items: ['siniestros', 'reclamos', 'eventos', 'pendientes', 'seguimiento', 'alertas'] },
+    { label: '💵 Adelantos',  items: ['adelantos', 'consultaAdelantos'] },
+    { label: '🔐 Admin',      items: ['usuarios', 'actividad'] },
+];
 
 function getCurrentSection() {
     const hash = window.location.hash.replace('#', '');
@@ -68,8 +78,15 @@ function getCurrentSection() {
 }
 
 function updateNavActive(section) {
+    // Links directos
     document.querySelectorAll('.nav-link').forEach(link => {
         link.classList.toggle('active', link.getAttribute('data-section') === section);
+    });
+    // Botones de grupo: resaltar si algún hijo está activo
+    document.querySelectorAll('.nav-group-btn').forEach(btn => {
+        const dropdown = btn.nextElementSibling;
+        const hasActive = dropdown && dropdown.querySelector(`.nav-link[data-section="${section}"]`);
+        btn.classList.toggle('has-active', !!hasActive);
     });
 }
 
@@ -78,22 +95,51 @@ function buildNavigation() {
     const nav = document.getElementById('main-nav');
     if (!nav) return;
 
-    const allowed = getAllowedScreens();
+    const allowed = new Set(getAllowedScreens());
     const session = getSession();
 
-    nav.innerHTML = allowed.map(key => {
-        const badge = (key === 'alertas') ? `<span id="alerts-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.7rem;margin-left:4px;vertical-align:middle;"></span>` : '';
-        return `<a href="#${key}" class="nav-link" data-section="${key}">${NAV_LABELS[key] || key}${badge}</a>`;
-    }).join('') +
+    const groupsHtml = NAV_GROUPS.map(group => {
+        // Ítem directo (sin dropdown)
+        if (group.key) {
+            if (!allowed.has(group.key)) return '';
+            const badge = group.key === 'alertas'
+                ? `<span id="alerts-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.7rem;margin-left:4px;vertical-align:middle;"></span>`
+                : '';
+            return `<a href="#${group.key}" class="nav-link" data-section="${group.key}">${group.label}${badge}</a>`;
+        }
+        // Grupo con dropdown
+        const visibleItems = group.items.filter(k => allowed.has(k));
+        if (visibleItems.length === 0) return '';
+        // Si solo hay 1 ítem visible, mostrarlo directo sin dropdown
+        if (visibleItems.length === 1) {
+            const k = visibleItems[0];
+            const badge = k === 'alertas'
+                ? `<span id="alerts-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.7rem;margin-left:4px;vertical-align:middle;"></span>`
+                : '';
+            return `<a href="#${k}" class="nav-link" data-section="${k}">${NAV_LABELS[k] || k}${badge}</a>`;
+        }
+        const links = visibleItems.map(k => {
+            const badge = k === 'alertas'
+                ? `<span id="alerts-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.7rem;margin-left:4px;vertical-align:middle;"></span>`
+                : '';
+            return `<a href="#${k}" class="nav-link" data-section="${k}">${NAV_LABELS[k] || k}${badge}</a>`;
+        }).join('');
+        return `<div class="nav-group">
+            <button type="button" class="nav-group-btn">${group.label}</button>
+            <div class="nav-dropdown">${links}</div>
+        </div>`;
+    }).join('');
+
+    nav.innerHTML = groupsHtml +
     `<div class="nav-search-wrap" style="margin-left:auto;display:flex;align-items:center;position:relative;">
         <input type="text" id="global-search-input" placeholder="🔍 Buscar..." autocomplete="off"
-            style="padding:0.3rem 0.6rem;border:1px solid #ccc;border-radius:4px;font-size:0.85rem;width:160px;">
+            style="padding:0.3rem 0.6rem;border:1px solid rgba(255,255,255,0.3);border-radius:4px;font-size:0.82rem;width:140px;background:rgba(255,255,255,0.12);color:#fff;">
         <div id="global-search-results" style="display:none;position:absolute;top:100%;right:0;background:#fff;border:1px solid #ccc;border-radius:4px;min-width:280px;max-height:320px;overflow-y:auto;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
     </div>` +
-    `<a href="#" class="nav-link" id="change-pwd-btn" title="Cambiar contraseña">🔒</a>` +
+    `<a href="#" class="nav-link" id="change-pwd-btn" title="Cambiar contraseña" style="padding:0.4rem 0.5rem;">🔒</a>` +
     `<a href="#" class="nav-link nav-logout" id="logout-btn" title="Cerrar sesión">🚪 ${session?.user?.usuario || ''}</a>`;
 
-    // Cerrar menú al seleccionar
+    // Cerrar menú/dropdown al seleccionar
     nav.querySelectorAll('.nav-link').forEach(link => {
         link.addEventListener('click', () => nav.classList.remove('open'));
     });

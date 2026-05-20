@@ -4,17 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Monitoreo de Reclamos</title>
-    <link rel="stylesheet" href="styles.css?v=202605192100">
+    <link rel="stylesheet" href="styles.css?v=202605201611">
 </head>
 <body>
     <header class="app-header">
-        <div class="header-top">
-            <h1>Sistema de Monitoreo de Reclamos</h1>
-            <button class="nav-toggle" id="nav-toggle" aria-label="Abrir menú">&#9776;</button>
+        <div class="header-inner">
+            <div class="header-top">
+                <h1>Sistema de Monitoreo de Reclamos</h1>
+                <button class="nav-toggle" id="nav-toggle" aria-label="Abrir menú">&#9776;</button>
+            </div>
+            <nav class="main-nav" id="main-nav">
+                <!-- Navegación generada dinámicamente según permisos del usuario -->
+            </nav>
         </div>
-        <nav class="main-nav" id="main-nav">
-            <!-- Navegación generada dinámicamente según permisos del usuario -->
-        </nav>
     </header>
 
     <main id="app-container" class="app-container">
@@ -31,6 +33,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script type="module" src="src/app.js?v=202605192100"></script>
+    <script type="module" src="src/app.js?v=202605201611"></script>
 </body>
 </html>
