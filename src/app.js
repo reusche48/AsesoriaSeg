@@ -44,29 +44,35 @@ const routes = {
     tarjetasSinSeguro: renderUninsuredCardsSection,
 };
 
+function ico(name) { return `<i data-lucide="${name}" class="nav-icon"></i>`; }
+
 /** Labels para la navegación */
 const NAV_LABELS = {
-    dashboard: '🏠 Inicio',
-    clientes: '👤 Clientes', bancos: '🏦 Bancos', tarjetas: '💳 Tarjetas',
-    seguros: '🛡️ Seguros', coberturas: '📋 Coberturas', siniestros: '⚠️ Siniestros',
-    reclamos: '📑 Reclamos', eventos: '📅 Eventos', pendientes: '⏳ Pendientes',
-    seguimiento: '📊 Seguimiento', alertas: '🔔 Alertas', usuarios: '🔐 Usuarios',
-    actividad: '📝 Actividad',
-    adelantos: '💵 Adelantos',
-    consultaAdelantos: '🔎 Consulta',
-    fichaCliente: '📄 Ficha',
-    tarjetasSinSeguro: '🔍 Sin Seguro',
+    dashboard:          `${ico('layout-dashboard')} Inicio`,
+    clientes:           `${ico('users')} Clientes`,
+    bancos:             `${ico('landmark')} Bancos`,
+    tarjetas:           `${ico('credit-card')} Tarjetas`,
+    seguros:            `${ico('shield')} Seguros`,
+    coberturas:         `${ico('list-checks')} Coberturas`,
+    siniestros:         `${ico('alert-triangle')} Siniestros`,
+    reclamos:           `${ico('file-text')} Reclamos`,
+    eventos:            `${ico('calendar-days')} Eventos`,
+    pendientes:         `${ico('clock')} Pendientes`,
+    seguimiento:        `${ico('line-chart')} Seguimiento`,
+    alertas:            `${ico('bell')} Alertas`,
+    usuarios:           `${ico('shield-check')} Usuarios`,
+    actividad:          `${ico('activity')} Actividad`,
+    adelantos:          `${ico('banknote')} Adelantos`,
+    consultaAdelantos:  `${ico('search')} Consultas`,
+    fichaCliente:       `${ico('contact')} Ficha`,
+    tarjetasSinSeguro:  `${ico('ban')} Sin Seguro`,
 };
 
-/** Grupos de navegación — cada grupo se muestra como dropdown */
-const NAV_GROUPS = [
-    { key: 'dashboard',  label: '🏠 Inicio' },
-    { label: '👤 Clientes',   items: ['clientes', 'fichaCliente'] },
-    { label: '🏦 Catálogos',  items: ['bancos', 'tarjetas', 'seguros', 'coberturas', 'tarjetasSinSeguro'] },
-    { label: '📑 Reclamos',   items: ['siniestros', 'reclamos', 'eventos', 'pendientes', 'seguimiento', 'alertas'] },
-    { label: '💵 Adelantos',  items: ['adelantos', 'consultaAdelantos'] },
-    { label: '🔐 Admin',      items: ['usuarios', 'actividad'] },
-];
+/** Ítems directos en la barra (sin dropdown) */
+const NAV_DIRECT = ['dashboard', 'clientes', 'bancos', 'tarjetas', 'siniestros', 'reclamos'];
+
+/** Todo lo demás va dentro del dropdown "Más ▾" */
+const NAV_MORE_LABEL = `${ico('grid-3x3')} Más`;
 
 function getCurrentSection() {
     const hash = window.location.hash.replace('#', '');
@@ -78,11 +84,10 @@ function getCurrentSection() {
 }
 
 function updateNavActive(section) {
-    // Links directos
     document.querySelectorAll('.nav-link').forEach(link => {
         link.classList.toggle('active', link.getAttribute('data-section') === section);
     });
-    // Botones de grupo: resaltar si algún hijo está activo
+    // Resaltar botón "Más" si la sección activa está en su dropdown
     document.querySelectorAll('.nav-group-btn').forEach(btn => {
         const dropdown = btn.nextElementSibling;
         const hasActive = dropdown && dropdown.querySelector(`.nav-link[data-section="${section}"]`);
@@ -98,39 +103,29 @@ function buildNavigation() {
     const allowed = new Set(getAllowedScreens());
     const session = getSession();
 
-    const groupsHtml = NAV_GROUPS.map(group => {
-        // Ítem directo (sin dropdown)
-        if (group.key) {
-            if (!allowed.has(group.key)) return '';
-            const badge = group.key === 'alertas'
-                ? `<span id="alerts-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.7rem;margin-left:4px;vertical-align:middle;"></span>`
-                : '';
-            return `<a href="#${group.key}" class="nav-link" data-section="${group.key}">${group.label}${badge}</a>`;
-        }
-        // Grupo con dropdown
-        const visibleItems = group.items.filter(k => allowed.has(k));
-        if (visibleItems.length === 0) return '';
-        // Si solo hay 1 ítem visible, mostrarlo directo sin dropdown
-        if (visibleItems.length === 1) {
-            const k = visibleItems[0];
-            const badge = k === 'alertas'
-                ? `<span id="alerts-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.7rem;margin-left:4px;vertical-align:middle;"></span>`
-                : '';
-            return `<a href="#${k}" class="nav-link" data-section="${k}">${NAV_LABELS[k] || k}${badge}</a>`;
-        }
-        const links = visibleItems.map(k => {
-            const badge = k === 'alertas'
-                ? `<span id="alerts-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.7rem;margin-left:4px;vertical-align:middle;"></span>`
-                : '';
-            return `<a href="#${k}" class="nav-link" data-section="${k}">${NAV_LABELS[k] || k}${badge}</a>`;
-        }).join('');
-        return `<div class="nav-group">
-            <button type="button" class="nav-group-btn">${group.label}</button>
-            <div class="nav-dropdown">${links}</div>
-        </div>`;
-    }).join('');
+    function navLink(key) {
+        const badge = key === 'alertas'
+            ? `<span id="alerts-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.7rem;margin-left:4px;vertical-align:middle;"></span>`
+            : '';
+        return `<a href="#${key}" class="nav-link" data-section="${key}">${NAV_LABELS[key] || key}${badge}</a>`;
+    }
 
-    nav.innerHTML = groupsHtml +
+    // Ítems directos visibles
+    const directHtml = NAV_DIRECT
+        .filter(k => allowed.has(k))
+        .map(navLink)
+        .join('');
+
+    // Ítems del dropdown "Más": todo lo que no es directo
+    const moreItems = [...allowed].filter(k => !NAV_DIRECT.includes(k));
+    const moreHtml = moreItems.length > 0
+        ? `<div class="nav-group">
+            <button type="button" class="nav-group-btn">${NAV_MORE_LABEL}</button>
+            <div class="nav-dropdown">${moreItems.map(navLink).join('')}</div>
+           </div>`
+        : '';
+
+    nav.innerHTML = directHtml + moreHtml +
     `<div class="nav-search-wrap" style="margin-left:auto;display:flex;align-items:center;position:relative;">
         <input type="text" id="global-search-input" placeholder="🔍 Buscar..." autocomplete="off"
             style="padding:0.3rem 0.6rem;border:1px solid rgba(255,255,255,0.3);border-radius:4px;font-size:0.82rem;width:140px;background:rgba(255,255,255,0.12);color:#fff;">
@@ -139,12 +134,10 @@ function buildNavigation() {
     `<a href="#" class="nav-link" id="change-pwd-btn" title="Cambiar contraseña" style="padding:0.4rem 0.5rem;">🔒</a>` +
     `<a href="#" class="nav-link nav-logout" id="logout-btn" title="Cerrar sesión">🚪 ${session?.user?.usuario || ''}</a>`;
 
-    // Cerrar menú/dropdown al seleccionar
     nav.querySelectorAll('.nav-link').forEach(link => {
         link.addEventListener('click', () => nav.classList.remove('open'));
     });
 
-    // Logout
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
         logoutBtn.addEventListener('click', (e) => {
@@ -154,7 +147,6 @@ function buildNavigation() {
         });
     }
 
-    // Cambiar contraseña
     const changePwdBtn = document.getElementById('change-pwd-btn');
     if (changePwdBtn) {
         changePwdBtn.addEventListener('click', (e) => {
@@ -162,6 +154,8 @@ function buildNavigation() {
             showChangePasswordPopup();
         });
     }
+
+    if (window.lucide) window.lucide.createIcons();
 }
 
 async function navigateTo(section) {
