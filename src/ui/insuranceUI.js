@@ -4,6 +4,7 @@ import { bankRepository } from '../repositories/bankRepository.js';
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalFieldErrors, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
+import { confirmarEliminacion, handleFileUpload } from '../utils.js';
 
 let polizaDataUrl = null;
 
@@ -52,7 +53,7 @@ function openInsForm(container, ins) {
             const fileInput = overlay.querySelector('#modal-poliza');
             fileInput.addEventListener('change', () => {
                 const file = fileInput.files[0];
-                if (file) { uploadFile(file).then(url => { polizaDataUrl = url; }).catch(err => alert('Error al subir archivo: ' + err.message)); }
+                if (file) { handleFileUpload(fileInput, url => { polizaDataUrl = url; }, uploadFile); }
             });
         },
     });
@@ -80,8 +81,8 @@ function refreshList(container) {
 
     el.querySelectorAll('.view-poliza-btn').forEach(b => b.addEventListener('click', () => { const f = b.getAttribute('data-file'); if (f) openFileViewer(f); }));
     el.querySelectorAll('.edit-ins-btn').forEach(b => b.addEventListener('click', () => { const i = list.find(x => x.id === b.getAttribute('data-id')); if (i) openInsForm(container, i); }));
-    el.querySelectorAll('.delete-ins-btn').forEach(b => b.addEventListener('click', () => {
-        if (confirm('¿Eliminar este seguro y sus coberturas?')) { const r = deleteInsurance(b.getAttribute('data-id')); if (r.success) refreshList(container); }
+    el.querySelectorAll('.delete-ins-btn').forEach(b => b.addEventListener('click', async () => {
+        if (await confirmarEliminacion('¿Eliminar este seguro y sus coberturas?')) { const r = deleteInsurance(b.getAttribute('data-id')); if (r.success) refreshList(container); }
     }));
 }
 

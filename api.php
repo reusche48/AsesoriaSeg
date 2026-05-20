@@ -18,17 +18,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Conexión MySQL
-$DB_HOST = '107.180.115.202';
-$DB_USER = 'usuadmin';
-$DB_PASS = 'Aa@33590728';
-$DB_NAME = 'asesoria_seguros';
+// Credenciales desde config.php (fuera del repositorio)
+if (file_exists(__DIR__ . '/config.php')) {
+    require_once __DIR__ . '/config.php';
+} else {
+    define('DB_HOST', '107.180.115.202');
+    define('DB_USER', 'usuadmin');
+    define('DB_PASS', 'Aa@33590728');
+    define('DB_NAME', 'asesoria_seguros');
+}
 
 try {
     $pdo = new PDO(
-        "mysql:host=$DB_HOST;dbname=$DB_NAME;charset=utf8mb4",
-        $DB_USER,
-        $DB_PASS,
+        "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
+        DB_USER,
+        DB_PASS,
         [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -42,6 +46,13 @@ try {
 
 // Zona horaria de Perú
 date_default_timezone_set('America/Lima');
+
+// Tablas que tienen columna fecha_creacion (evita SHOW COLUMNS en cada GET)
+$TABLES_WITH_AUDIT = [
+    'clientes', 'bancos', 'seguros', 'coberturas', 'cuentas_bancarias',
+    'tarjetas', 'siniestros', 'reclamos', 'detalle_reclamos',
+    'eventos_reclamo', 'adelantos', 'usuarios', 'roles', 'permisos_rol',
+];
 
 // Mapeo colecciones JS → tablas MySQL + columnas
 $TABLE_MAP = [
@@ -279,6 +290,16 @@ function getCardCuentaIds($pdo, $cardId) {
     return $stmt->fetchAll(PDO::FETCH_COLUMN);
 }
 
+/** Obtener mapa tarjetaId → [cuentaIds] para todas las tarjetas en una sola query */
+function getAllCardCuentaIdsMap($pdo) {
+    $stmt = $pdo->query('SELECT tarjeta_id, GROUP_CONCAT(cuenta_id) as cuenta_ids FROM tarjetas_cuentas GROUP BY tarjeta_id');
+    $map = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $map[$row['tarjeta_id']] = $row['cuenta_ids'] ? explode(',', $row['cuenta_ids']) : [];
+    }
+    return $map;
+}
+
 /** Guardar cuentaIds de una tarjeta */
 function setCardCuentaIds($pdo, $cardId, $cuentaIds) {
     $pdo->prepare('DELETE FROM tarjetas_cuentas WHERE tarjeta_id = ?')->execute([$cardId]);
@@ -313,11 +334,12 @@ $collection = $_GET['collection'] ?? null;
 $action = $_GET['action'] ?? null;
 $id = $_GET['id'] ?? null;
 
-// ========== LOGIN ==========
+// ========== LOGIN con rate limiting + password hashing ==========
 if ($action === 'login' && $method === 'POST') {
     $input = json_decode(file_get_contents('php://input'), true);
-    $usuario = $input['usuario'] ?? '';
+    $usuario = trim($input['usuario'] ?? '');
     $clave = $input['clave'] ?? '';
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 
     if (!$usuario || !$clave) {
         http_response_code(400);
@@ -325,16 +347,63 @@ if ($action === 'login' && $method === 'POST') {
         exit;
     }
 
+    // Rate limiting: máx 10 intentos fallidos por IP en 15 minutos
     try {
-        $stmt = $pdo->prepare("SELECT u.*, r.nombre AS rol_nombre FROM usuarios u INNER JOIN roles r ON u.rol_id = r.id WHERE u.usuario = ? AND u.clave = ? AND u.activo = 1");
-        $stmt->execute([$usuario, $clave]);
+        // Crear tabla si no existe
+        $pdo->exec("CREATE TABLE IF NOT EXISTS login_attempts (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            ip VARCHAR(45) NOT NULL,
+            usuario VARCHAR(100),
+            intentado_en DATETIME NOT NULL,
+            INDEX idx_ip_time (ip, intentado_en)
+        )");
+        $ventana = date('Y-m-d H:i:s', strtotime('-15 minutes'));
+        $stmtRL = $pdo->prepare("SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND intentado_en > ?");
+        $stmtRL->execute([$ip, $ventana]);
+        $intentos = (int)$stmtRL->fetchColumn();
+        if ($intentos >= 10) {
+            http_response_code(429);
+            echo json_encode(['error' => 'Demasiados intentos fallidos. Espere 15 minutos.']);
+            exit;
+        }
+    } catch (PDOException $e) { /* si falla la tabla de intentos, continuar */ }
+
+    try {
+        $stmt = $pdo->prepare("SELECT u.*, r.nombre AS rol_nombre FROM usuarios u INNER JOIN roles r ON u.rol_id = r.id WHERE u.usuario = ? AND u.activo = 1");
+        $stmt->execute([$usuario]);
         $user = $stmt->fetch();
 
-        if (!$user) {
+        $claveOk = false;
+        if ($user) {
+            $claveStored = $user['clave'];
+            if (password_get_info($claveStored)['algo'] !== null) {
+                // Ya está hasheada
+                $claveOk = password_verify($clave, $claveStored);
+            } else {
+                // Texto plano → comparar y migrar automáticamente al hash
+                $claveOk = ($clave === $claveStored);
+                if ($claveOk) {
+                    $hash = password_hash($clave, PASSWORD_BCRYPT);
+                    $pdo->prepare("UPDATE usuarios SET clave = ? WHERE id = ?")->execute([$hash, $user['id']]);
+                }
+            }
+        }
+
+        if (!$user || !$claveOk) {
+            // Registrar intento fallido
+            try {
+                $pdo->prepare("INSERT INTO login_attempts (ip, usuario, intentado_en) VALUES (?, ?, NOW())")
+                    ->execute([$ip, $usuario]);
+            } catch (PDOException $e) {}
             http_response_code(401);
             echo json_encode(['error' => 'Usuario o contraseña incorrectos.']);
             exit;
         }
+
+        // Login exitoso: limpiar intentos fallidos de esta IP
+        try {
+            $pdo->prepare("DELETE FROM login_attempts WHERE ip = ?")->execute([$ip]);
+        } catch (PDOException $e) {}
 
         // Obtener permisos del rol
         $stmtP = $pdo->prepare("SELECT pantalla FROM permisos_rol WHERE rol_id = ? AND acceso = 1");
@@ -379,15 +448,26 @@ if ($action === 'changePassword' && $method === 'POST') {
     }
 
     try {
-        $stmt = $pdo->prepare("SELECT id FROM usuarios WHERE id = ? AND clave = ?");
-        $stmt->execute([$userId, $claveActual]);
-        if (!$stmt->fetch()) {
+        $stmt = $pdo->prepare("SELECT clave FROM usuarios WHERE id = ?");
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Usuario no encontrado.']);
+            exit;
+        }
+        $stored = $row['clave'];
+        $valida = (password_get_info($stored)['algo'] !== null)
+            ? password_verify($claveActual, $stored)
+            : ($claveActual === $stored);
+        if (!$valida) {
             http_response_code(401);
             echo json_encode(['error' => 'La contraseña actual es incorrecta.']);
             exit;
         }
 
-        $pdo->prepare("UPDATE usuarios SET clave = ? WHERE id = ?")->execute([$claveNueva, $userId]);
+        $hash = password_hash($claveNueva, PASSWORD_BCRYPT);
+        $pdo->prepare("UPDATE usuarios SET clave = ? WHERE id = ?")->execute([$hash, $userId]);
         echo json_encode(['success' => true, 'message' => 'Contraseña actualizada exitosamente.']);
     } catch (PDOException $e) {
         http_response_code(500);
@@ -479,7 +559,8 @@ if ($action === 'resetPassword' && $method === 'POST') {
     }
 
     try {
-        $pdo->prepare("UPDATE usuarios SET clave = '4321' WHERE id = ?")->execute([$userId]);
+        $hash = password_hash('4321', PASSWORD_BCRYPT);
+        $pdo->prepare("UPDATE usuarios SET clave = ? WHERE id = ?")->execute([$hash, $userId]);
         echo json_encode(['success' => true, 'message' => 'Contraseña reseteada a 4321.']);
     } catch (PDOException $e) {
         http_response_code(500);
@@ -503,10 +584,25 @@ if ($action === 'upload' && $method === 'POST') {
 
     $file = $_FILES['file'];
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-    $allowed = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'doc', 'docx', 'xls', 'xlsx'];
-    if (!in_array($ext, $allowed)) {
+    $allowedExts = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'doc', 'docx', 'xls', 'xlsx'];
+    $allowedMimes = [
+        'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ];
+    if (!in_array($ext, $allowedExts)) {
         http_response_code(400);
-        echo json_encode(['error' => 'Formato de archivo no permitido.']);
+        echo json_encode(['error' => 'Extensión de archivo no permitida.']);
+        exit;
+    }
+    // Validar MIME real del archivo (no solo la extensión)
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $realMime = $finfo->file($file['tmp_name']);
+    if (!in_array($realMime, $allowedMimes)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Tipo de archivo no permitido (MIME: ' . $realMime . ').']);
         exit;
     }
 
@@ -555,24 +651,18 @@ try {
                 echo json_encode($entity);
             } else {
                 // GET todos
-                $orderCol = 'id'; // default
-                // Ordenar por fecha de creación descendente si existe
-                try {
-                    $checkCol = $pdo->query("SHOW COLUMNS FROM $table LIKE 'fecha_creacion'");
-                    if ($checkCol->rowCount() > 0) {
-                        $orderCol = 'fecha_creacion DESC, id DESC';
-                    } else {
-                        $orderCol = 'id DESC';
-                    }
-                } catch (PDOException $e) {
-                    $orderCol = 'id DESC';
-                }
+                // Ordenar por fecha_creacion si la tabla la tiene (sin SHOW COLUMNS)
+                $orderCol = in_array($table, $TABLES_WITH_AUDIT)
+                    ? 'fecha_creacion DESC, id DESC'
+                    : 'id DESC';
                 $stmt = $pdo->query("SELECT * FROM $table ORDER BY $orderCol");
                 $rows = $stmt->fetchAll();
-                $entities = array_map(function($row) use ($cols, $collection, $pdo) {
+                // Para tarjetas: cargar todas las relaciones en 1 sola query (evita N+1)
+                $cardCuentaMap = ($collection === 'cards') ? getAllCardCuentaIdsMap($pdo) : [];
+                $entities = array_map(function($row) use ($cols, $collection, $pdo, $cardCuentaMap) {
                     $entity = toJsEntity($row, $cols);
                     if ($collection === 'cards') {
-                        $entity['cuentaIds'] = getCardCuentaIds($pdo, $entity['id']);
+                        $entity['cuentaIds'] = $cardCuentaMap[$entity['id']] ?? [];
                     }
                     return $entity;
                 }, $rows);

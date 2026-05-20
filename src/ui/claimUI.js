@@ -1,4 +1,4 @@
-import { addClaimDetail, updateClaimDetail, deleteClaimDetail, calculateClaimTotal } from '../services/claimService.js';
+import { addClaimDetail, updateClaimDetail, deleteClaimDetail, calculateClaimTotal, changeClaimState } from '../services/claimService.js';
 import { claimRepository } from '../repositories/claimRepository.js';
 import { claimDetailRepository } from '../repositories/claimDetailRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
@@ -10,6 +10,7 @@ import { coverageRepository } from '../repositories/coverageRepository.js';
 import { openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { initStorage, uploadFile } from '../storage.js';
+import { confirmarEliminacion, handleFileUpload } from '../utils.js';
 
 let selectedDetailEvidenceDataUrl = null;
 
@@ -17,6 +18,8 @@ export function renderClaimSection(container) {
     selectedDetailEvidenceDataUrl = null;
 
     const clients = clientRepository.getAll();
+    const preselectClientId = sessionStorage.getItem('reclamos_preselect_client');
+    sessionStorage.removeItem('reclamos_preselect_client');
 
     container.innerHTML = `
         <div class="section">
@@ -28,7 +31,8 @@ export function renderClaimSection(container) {
                     <select id="claim-client-select" aria-label="Seleccionar cliente">
                         <option value="">-- Seleccione un cliente --</option>
                         ${clients.map(cl => {
-                            return `<option value="${esc(cl.id)}">${esc(cl.nombreCompleto)} ${esc(cl.apellidosCompletos)} (${esc(cl.dni)})</option>`;
+                            const sel = preselectClientId === cl.id ? 'selected' : '';
+                            return `<option value="${esc(cl.id)}" ${sel}>${esc(cl.nombreCompleto)} ${esc(cl.apellidosCompletos)} (${esc(cl.dni)})</option>`;
                         }).join('')}
                     </select>
                 </div>
@@ -52,6 +56,11 @@ export function renderClaimSection(container) {
 
     setupClientSelector(container);
     setupBankSelector(container);
+
+    if (preselectClientId) {
+        const sel = container.querySelector('#claim-client-select');
+        if (sel) { sel.value = preselectClientId; sel.dispatchEvent(new Event('change')); }
+    }
 
     container.querySelector('#claim-detail-add-btn').addEventListener('click', () => {
         const claimId = container.querySelector('#claim-bank-select').value;
@@ -90,10 +99,7 @@ function setupClientSelector(container) {
 
         // Obtener bancos del cliente (de sus tarjetas)
         const clientCards = cardRepository.findByClientId(clientId);
-        console.log('🔍 Tarjetas del cliente:', clientCards);
-        
         const clientBankIds = [...new Set(clientCards.map(c => c.bancoId))];
-        console.log('🏦 Bancos del cliente:', clientBankIds);
         
         if (clientBankIds.length === 0) {
             bankSelect.innerHTML = '<option value="">-- El cliente no tiene tarjetas registradas. Presione "Refrescar Datos" --</option>';
@@ -102,7 +108,6 @@ function setupClientSelector(container) {
 
         // Obtener siniestros del cliente
         const clientIncidents = incidentRepository.getAll().filter(inc => inc.clienteId === clientId);
-        console.log('📋 Siniestros del cliente:', clientIncidents);
 
         if (clientIncidents.length === 0) {
             bankSelect.innerHTML = '<option value="">-- El cliente no tiene siniestros registrados --</option>';
@@ -114,8 +119,6 @@ function setupClientSelector(container) {
         const allClaims = claimRepository.getAll();
         const clientClaims = allClaims.filter(claim => clientIncidentIds.includes(claim.siniestroId));
         
-        console.log('✅ Reclamos del cliente:', clientClaims);
-
         // Crear opciones: mostrar bancos donde tiene tarjetas
         const options = clientBankIds.map(bankId => {
             const bank = bankRepository.getById(bankId);
@@ -330,7 +333,7 @@ function openDetailModal(container, claimId, detailId) {
             overlay.querySelector('#modal-claim-evidence').addEventListener('change', (e) => {
                 const file = e.target.files[0];
                 if (file) {
-                    uploadFile(file).then(url => { selectedDetailEvidenceDataUrl = url; }).catch(err => alert('Error al subir archivo: ' + err.message));
+                    handleFileUpload(overlay.querySelector('#modal-claim-evidence'), url => { selectedDetailEvidenceDataUrl = url; }, uploadFile);
                 } else {
                     selectedDetailEvidenceDataUrl = null;
                 }
@@ -368,6 +371,9 @@ function getCovMontoText(coberturaId) {
     return cov && cov.monto != null ? formatMoney(cov.monto) : '';
 }
 
+const STATE_COLORS = { 'Pendiente': '#e65100', 'En Proceso': '#1565c0', 'Culminado': '#2e7d32' };
+const STATE_NEXT_LABEL = { 'Pendiente': '▶ Iniciar proceso', 'En Proceso': '✅ Marcar como Culminado' };
+
 function updateClaimInfo(container, claimId) {
     const claim = claimRepository.getById(claimId);
     const bank = claim ? bankRepository.getById(claim.bancoId) : null;
@@ -375,15 +381,38 @@ function updateClaimInfo(container, claimId) {
     const client = incident ? clientRepository.getById(incident.clienteId) : null;
     const clientName = client ? `${esc(client.nombreCompleto)} ${esc(client.apellidosCompletos)}` : 'N/A';
     const details = claimDetailRepository.findByClaimId(claimId);
+    const estado = claim?.estado || 'Pendiente';
+    const stateColor = STATE_COLORS[estado] || '#333';
+    const nextLabel = STATE_NEXT_LABEL[estado];
+
+    const advanceBtn = nextLabel
+        ? `<button type="button" class="btn btn-primary" id="claim-advance-state-btn" style="margin-top:0.5rem;">${nextLabel}</button>`
+        : `<span style="color:${stateColor};font-weight:700;">Reclamo culminado</span>`;
 
     container.querySelector('#claim-info').innerHTML = `<div class="alert alert-info">
         <div><strong>Cliente:</strong> ${clientName}</div>
         <div><strong>Banco:</strong> ${bank ? esc(bank.nombre) : 'N/A'}</div>
         <div><strong>Fecha:</strong> ${claim ? formatDate(claim.fecha) : 'N/A'}</div>
-        <div><strong>Estado:</strong> ${claim ? esc(claim.estado) : 'N/A'}</div>
+        <div><strong>Estado:</strong> <span style="color:${stateColor};font-weight:700;">${esc(estado)}</span></div>
         <div><strong>Monto Total (Soles):</strong> S/ ${formatMoney(claim?.montoTotal)}</div>
         <div><strong>Coberturas registradas:</strong> ${details.length}</div>
+        <div>${advanceBtn}</div>
     </div>`;
+
+    const advBtn = container.querySelector('#claim-advance-state-btn');
+    if (advBtn) {
+        advBtn.addEventListener('click', () => {
+            const obs = estado === 'Pendiente'
+                ? 'Reclamo iniciado — documentación en proceso.'
+                : 'Reclamo culminado — indemnización procesada.';
+            const result = changeClaimState(claimId, obs);
+            if (result.success) {
+                updateClaimInfo(container, claimId);
+            } else {
+                alert(result.errors?.[0]?.message || 'Error al cambiar estado.');
+            }
+        });
+    }
 }
 
 function refreshDetailList(container, claimId) {
@@ -439,8 +468,8 @@ function refreshDetailList(container, claimId) {
         btn.addEventListener('click', () => openDetailModal(container, claimId, btn.getAttribute('data-id')));
     });
     listContent.querySelectorAll('.delete-detail-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (confirm('¿Eliminar esta cobertura del reclamo?')) {
+        btn.addEventListener('click', async () => {
+            if (await confirmarEliminacion('¿Eliminar esta cobertura del reclamo?')) {
                 const result = deleteClaimDetail(btn.getAttribute('data-id'));
                 if (result.success) {
                     refreshDetailList(container, claimId);

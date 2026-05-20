@@ -1,5 +1,6 @@
 import { claimRepository } from '../repositories/claimRepository.js';
 import { claimDetailRepository } from '../repositories/claimDetailRepository.js';
+import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import { bankAccountRepository } from '../repositories/bankAccountRepository.js';
@@ -276,4 +277,47 @@ export function deleteClaimDetail(claimDetailId) {
     claimDetailRepository.delete(claimDetailId);
     const claimTotal = calculateClaimTotal(claimId);
     return { success: true, claimTotal };
+}
+
+const STATE_FLOW = ['Pendiente', 'En Proceso', 'Culminado'];
+const STATE_EVENT_DESC = {
+    'En Proceso': 'Reclamo presentado',
+    'Culminado': 'Reclamo indemnizado',
+};
+
+/**
+ * Avanza el estado del reclamo al siguiente en el flujo y registra un evento automático.
+ * @param {string} claimId
+ * @param {string} observacion - Observación para el evento automático
+ * @returns {{ success: boolean, newState?: string, errors?: object[] }}
+ */
+export function changeClaimState(claimId, observacion) {
+    const claim = claimRepository.getById(claimId);
+    if (!claim) return { success: false, errors: [{ message: 'Reclamo no encontrado.' }] };
+
+    const currentIdx = STATE_FLOW.indexOf(claim.estado || 'Pendiente');
+    if (currentIdx === -1 || currentIdx === STATE_FLOW.length - 1) {
+        return { success: false, errors: [{ message: 'El reclamo ya está en su estado final.' }] };
+    }
+
+    const newState = STATE_FLOW[currentIdx + 1];
+    claimRepository.update(claimId, { estado: newState });
+
+    // Registrar evento automático
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const nowStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    claimEventRepository.save({
+        reclamoId: claimId,
+        fecha: nowStr,
+        descripcion: STATE_EVENT_DESC[newState] || 'Avance del reclamo',
+        observacion: observacion || `Estado cambiado a ${newState} automáticamente.`,
+        evidencia: null,
+        diasEspera: null,
+        tipoDias: null,
+        fechaVencimiento: null,
+        eventoOrigenId: null,
+    });
+
+    return { success: true, newState };
 }

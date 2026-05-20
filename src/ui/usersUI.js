@@ -1,5 +1,6 @@
 import { getSession, isAdmin } from '../auth.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
+import { confirmarEliminacion } from '../utils.js';
 
 /**
  * Módulo UI para administración de usuarios, roles y permisos.
@@ -231,7 +232,7 @@ function renderRoleList(container) {
                 alert('No se puede eliminar el rol porque tiene usuarios asignados.');
                 return;
             }
-            if (confirm('¿Eliminar este rol y sus permisos?')) {
+            if (await confirmarEliminacion('¿Eliminar este rol y sus permisos?')) {
                 await fetch(`${API_BASE}?collection=roles&id=${id}`, { method: 'DELETE' });
                 await loadData();
                 render(container);
@@ -270,7 +271,7 @@ function renderUserList(container) {
     });
     list.querySelectorAll('.delete-user-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
-            if (confirm('¿Eliminar este usuario?')) {
+            if (await confirmarEliminacion('¿Eliminar este usuario?')) {
                 await fetch(`${API_BASE}?collection=users&id=${btn.getAttribute('data-id')}`, { method: 'DELETE' });
                 await loadData();
                 render(container);

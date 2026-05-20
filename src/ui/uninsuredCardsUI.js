@@ -6,6 +6,7 @@ import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
+import { handleFileUpload } from '../utils.js';
 
 export function renderUninsuredCardsSection(container) {
     container.innerHTML = `
@@ -107,10 +108,7 @@ function openAssignModal(container, cardId, bankId) {
             fileInput.addEventListener('change', () => {
                 const file = fileInput.files[0];
                 if (file) {
-                    uploadFile(file).then(url => {
-                        evidenciaDataUrl = url;
-                        overlay.querySelector('#modal-ev-assign-preview').textContent = '📎 ' + file.name;
-                    }).catch(err => alert('Error al subir archivo: ' + err.message));
+                    handleFileUpload(fileInput, url => { evidenciaDataUrl = url; }, uploadFile);
                 }
             });
         },

@@ -2,6 +2,7 @@ import { createBank, updateBank, deleteBank } from '../services/bankService.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import { auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalFieldErrors, clearModalErrors } from './modalHelper.js';
+import { confirmarEliminacion } from '../utils.js';
 
 export function renderBankSection(container) {
     container.innerHTML = `
@@ -57,9 +58,9 @@ function refreshBankList(container) {
         btn.addEventListener('click', () => { const b = banks.find(x => x.id === btn.getAttribute('data-id')); if (b) openBankForm(container, b); });
     });
     listContent.querySelectorAll('.delete-bank-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const id = btn.getAttribute('data-id'), name = btn.getAttribute('data-name');
-            if (confirm(`¿Eliminar banco "${name}"?`)) {
+            if (await confirmarEliminacion(`¿Eliminar banco "${name}"?`)) {
                 const r = deleteBank(id);
                 if (r.success) refreshBankList(container);
                 else alert(r.message);

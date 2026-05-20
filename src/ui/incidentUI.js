@@ -5,6 +5,7 @@ import { bankRepository } from '../repositories/bankRepository.js';
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
+import { confirmarEliminacion, handleFileUpload } from '../utils.js';
 
 /**
  * Módulo UI para registro de siniestros con denuncia policial.
@@ -100,14 +101,7 @@ function openIncidentModal(container, incidentId) {
             fileInput.addEventListener('change', async () => {
                 const file = fileInput.files[0];
                 if (file) {
-                    try {
-                        selectedFileDataUrl = await uploadFile(file);
-                        selectedFileName = file.name;
-                    } catch (err) {
-                        alert('Error al subir archivo: ' + err.message);
-                        selectedFileDataUrl = null; selectedFileName = null;
-                        fileInput.value = '';
-                    }
+                    await handleFileUpload(fileInput, url => { selectedFileDataUrl = url; selectedFileName = file.name; }, uploadFile);
                 } else {
                     selectedFileDataUrl = null; selectedFileName = null;
                 }
@@ -207,6 +201,7 @@ function refreshIncidentList(container) {
                 <td>
                     <button type="button" class="btn-icon primary edit-incident-btn" data-incident-id="${escapeHtml(inc.id)}" title="Editar">✏️</button>
                     <button type="button" class="btn-icon view-banks-btn" data-incident-id="${escapeHtml(inc.id)}" title="Bancos">🏦</button>
+                    <button type="button" class="btn-icon go-reclamo-btn" data-client-id="${escapeHtml(inc.clienteId)}" title="Ir a Reclamos de este cliente">📑</button>
                 </td>
             </tr>
         `;
@@ -224,6 +219,15 @@ function refreshIncidentList(container) {
     });
     listContent.querySelectorAll('.view-banks-btn').forEach(btn => {
         btn.addEventListener('click', () => showBankSection(container, btn.getAttribute('data-incident-id')));
+    });
+    listContent.querySelectorAll('.go-reclamo-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const clientId = btn.getAttribute('data-client-id');
+            window.location.hash = '#reclamos';
+            // Pasar el clienteId como parámetro de estado para pre-seleccionar
+            sessionStorage.setItem('reclamos_preselect_client', clientId);
+            window.dispatchEvent(new HashChangeEvent('hashchange'));
+        });
     });
     listContent.querySelectorAll('.view-file-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -293,9 +297,9 @@ function refreshBankList(container, incidentId) {
     `;
 
     listDiv.querySelectorAll('.delete-claim-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const claimId = btn.getAttribute('data-claim-id');
-            if (confirm('¿Está seguro de eliminar este reclamo?')) {
+            if (await confirmarEliminacion('¿Está seguro de eliminar este reclamo?')) {
                 const result = deleteClaim(claimId);
                 if (result.success) {
                     refreshBankList(container, incidentId);

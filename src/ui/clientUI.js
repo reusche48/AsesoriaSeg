@@ -1,8 +1,13 @@
 import { registerClient, updateClient, deleteClient } from '../services/clientService.js';
 import { clientRepository } from '../repositories/clientRepository.js';
+import { claimRepository } from '../repositories/claimRepository.js';
+import { incidentRepository } from '../repositories/incidentRepository.js';
+import { bankRepository } from '../repositories/bankRepository.js';
+import { advanceRepository } from '../repositories/advanceRepository.js';
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, showModalFieldErrors, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
+import { confirmarEliminacion } from '../utils.js';
 
 let editingClientId = null;
 let dniFrontalDataUrl = null;
@@ -277,6 +282,7 @@ function renderClientTable(mainContainer, tableContainer, clients) {
             <td>${auditLinkHtml(c)}</td>
             <td class="actions">
                 <button type="button" class="btn-icon primary edit-client-btn" data-id="${esc(c.id)}" title="Editar">✏️</button>
+                <button type="button" class="btn-icon summary-client-btn" data-id="${esc(c.id)}" title="Resumen financiero" style="background:#6a1b9a;color:#fff;">📊</button>
                 <button type="button" class="btn-icon danger delete-client-btn" data-id="${esc(c.id)}" data-name="${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}" title="Eliminar">🗑️</button>
             </td>
         </tr>`;
@@ -301,11 +307,17 @@ function renderClientTable(mainContainer, tableContainer, clients) {
             if (client) openClientForm(mainContainer, client);
         });
     });
-    tableContainer.querySelectorAll('.delete-client-btn').forEach(btn => {
+    tableContainer.querySelectorAll('.summary-client-btn').forEach(btn => {
         btn.addEventListener('click', () => {
+            const client = clients.find(c => c.id === btn.getAttribute('data-id'));
+            if (client) openClientSummaryModal(client);
+        });
+    });
+    tableContainer.querySelectorAll('.delete-client-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
             const id = btn.getAttribute('data-id');
             const name = btn.getAttribute('data-name');
-            if (confirm(`¿Está seguro de eliminar al cliente "${name}"?`)) {
+            if (await confirmarEliminacion(`¿Está seguro de eliminar al cliente "${name}"?`)) {
                 const result = deleteClient(id);
                 if (result.success) { triggerSearch(mainContainer); }
                 else { alert(result.errors[0].message); }
@@ -313,5 +325,55 @@ function renderClientTable(mainContainer, tableContainer, clients) {
         });
     });
 }
+
+function openClientSummaryModal(client) {
+    const clientName = `${client.nombreCompleto} ${client.apellidosCompletos}`;
+
+    // Claims: obtener siniestros del cliente → reclamos
+    const incidents = incidentRepository.getAll().filter(i => i.clienteId === client.id);
+    const incidentIds = incidents.map(i => i.id);
+    const claims = claimRepository.getAll().filter(c => incidentIds.includes(c.siniestroId));
+
+    const totalReclamado = claims.reduce((s, c) => s + (Number(c.montoTotal) || 0), 0);
+    const claimsRows = claims.map(c => {
+        const bank = bankRepository.getById(c.bancoId);
+        const estado = c.estado || 'Pendiente';
+        const colors = { 'Pendiente': '#e65100', 'En Proceso': '#1565c0', 'Culminado': '#2e7d32' };
+        return `<tr>
+            <td>${bank ? esc(bank.nombre) : '-'}</td>
+            <td><span style="color:${colors[estado]||'#333'};font-weight:600;">${esc(estado)}</span></td>
+            <td style="text-align:right;">S/ ${fmtMoney(c.montoTotal)}</td>
+        </tr>`;
+    }).join('');
+
+    // Advances
+    const advances = advanceRepository.getAll().filter(a => a.clienteId === client.id);
+    const totalAdelantado = advances.reduce((s, a) => s + (Number(a.montoSoles) || 0), 0);
+    const saldo = totalReclamado - totalAdelantado;
+
+    const html = `
+        <div style="margin-bottom:1rem;">
+            <h4 style="margin:0 0 0.5rem;color:#1565c0;">Resumen por Reclamos</h4>
+            ${claims.length === 0
+                ? '<p style="color:#888;">Sin reclamos registrados.</p>'
+                : `<table class="data-table"><thead><tr><th>Banco</th><th>Estado</th><th>Monto Total</th></tr></thead><tbody>${claimsRows}</tbody></table>`}
+        </div>
+        <div style="background:#f5f5f5;border-radius:6px;padding:0.75rem 1rem;margin-top:0.5rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;text-align:center;">
+            <div><div style="font-size:0.78rem;color:#666;">Total Reclamado</div><div style="font-size:1.15rem;font-weight:700;color:#1565c0;">S/ ${fmtMoney(totalReclamado)}</div></div>
+            <div><div style="font-size:0.78rem;color:#666;">Total Adelantado</div><div style="font-size:1.15rem;font-weight:700;color:#e65100;">S/ ${fmtMoney(totalAdelantado)}</div></div>
+            <div><div style="font-size:0.78rem;color:#666;">Saldo Pendiente</div><div style="font-size:1.15rem;font-weight:700;color:${saldo > 0 ? '#2e7d32' : '#888'};">S/ ${fmtMoney(saldo)}</div></div>
+        </div>
+        <p style="font-size:0.8rem;color:#888;margin-top:0.5rem;">* Los montos están expresados en Soles (PEN).</p>
+    `;
+
+    openFormModal({
+        title: `📊 Ficha Financiera — ${esc(clientName)}`,
+        html,
+        submitLabel: 'Cerrar',
+        onSubmit: () => closeFormModal(),
+    });
+}
+
+function fmtMoney(v) { return Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
 function esc(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }

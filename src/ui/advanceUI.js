@@ -5,12 +5,17 @@ import { openFileViewer, auditLinkHtml } from '../app.js';
 import { isAdmin } from '../auth.js';
 import { openFormModal, closeFormModal, showModalFieldErrors, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
+import { confirmarEliminacion, handleFileUpload, exportToExcel } from '../utils.js';
 
 let selectedClientId = null;
+let selectedDesde = null;
+let selectedHasta = null;
 let evidenciaDataUrl = null;
 
 export function renderAdvanceSection(container) {
     selectedClientId = null;
+    selectedDesde = null;
+    selectedHasta = null;
     const clients = clientRepository.getAll();
     const clientOpts = clients.map(c => `<option value="${esc(c.id)}">${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)} - ${esc(c.dni)}</option>`).join('');
 
@@ -18,13 +23,19 @@ export function renderAdvanceSection(container) {
         <div class="section">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
                 <h2 class="section-title" style="margin:0;">Adelantos</h2>
-                <button type="button" class="btn btn-primary" id="btn-add-adv">➕ Registrar Adelanto</button>
+                <div style="display:flex;gap:0.5rem;">
+                    <button type="button" class="btn btn-secondary" id="btn-export-adv">📊 Exportar Excel</button>
+                    <button type="button" class="btn btn-primary" id="btn-add-adv">➕ Registrar Adelanto</button>
+                </div>
             </div>
-            <div class="form-group" style="margin-top:0.75rem;">
-                <select id="adv-filter-cliente" style="width:100%;padding:0.5rem;border:1px solid #ccc;border-radius:4px;">
+            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem;align-items:center;">
+                <select id="adv-filter-cliente" style="flex:1;min-width:200px;padding:0.5rem;border:1px solid #ccc;border-radius:4px;">
                     <option value="">-- Todos los clientes --</option>
                     ${clientOpts}
                 </select>
+                <input type="date" id="adv-filter-desde" title="Desde" style="padding:0.5rem;border:1px solid #ccc;border-radius:4px;">
+                <input type="date" id="adv-filter-hasta" title="Hasta" style="padding:0.5rem;border:1px solid #ccc;border-radius:4px;">
+                <button type="button" class="btn btn-secondary" id="adv-filter-clear" title="Limpiar filtros">✖ Limpiar</button>
             </div>
             <div id="advance-total" style="font-weight:700;margin:0.5rem 0;"></div>
             <div id="advance-list" class="mt-1"></div>
@@ -32,7 +43,17 @@ export function renderAdvanceSection(container) {
     `;
 
     container.querySelector('#btn-add-adv').addEventListener('click', () => openAdvForm(container, null));
+    container.querySelector('#btn-export-adv').addEventListener('click', () => exportAdvances());
     container.querySelector('#adv-filter-cliente').addEventListener('change', (e) => { selectedClientId = e.target.value || null; refreshList(container); });
+    container.querySelector('#adv-filter-desde').addEventListener('change', (e) => { selectedDesde = e.target.value || null; refreshList(container); });
+    container.querySelector('#adv-filter-hasta').addEventListener('change', (e) => { selectedHasta = e.target.value || null; refreshList(container); });
+    container.querySelector('#adv-filter-clear').addEventListener('click', () => {
+        selectedClientId = null; selectedDesde = null; selectedHasta = null;
+        container.querySelector('#adv-filter-cliente').value = '';
+        container.querySelector('#adv-filter-desde').value = '';
+        container.querySelector('#adv-filter-hasta').value = '';
+        refreshList(container);
+    });
     refreshList(container);
 }
 
@@ -79,12 +100,34 @@ function openAdvForm(container, adv) {
                 overlay.querySelector('#modal-tc-row').style.display = e.target.value === 'USD' ? '' : 'none';
             });
             const fileInput = overlay.querySelector('#modal-evidencia');
-            fileInput.addEventListener('change', () => {
-                const file = fileInput.files[0];
-                if (file) { uploadFile(file).then(url => { evidenciaDataUrl = url; }).catch(err => alert('Error al subir archivo: ' + err.message)); }
-            });
+            fileInput.addEventListener('change', () => handleFileUpload(fileInput, url => { evidenciaDataUrl = url; }, uploadFile));
         },
     });
+}
+
+function exportAdvances() {
+    let advances = advanceRepository.getAll();
+    if (selectedClientId) advances = advances.filter(a => a.clienteId === selectedClientId);
+    if (selectedDesde) advances = advances.filter(a => a.fecha >= selectedDesde);
+    if (selectedHasta) advances = advances.filter(a => a.fecha <= selectedHasta);
+    advances.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+    const rows = advances.map(a => {
+        const client = clientRepository.getById(a.clienteId);
+        return {
+            'Fecha': a.fecha,
+            'Cliente': client ? `${client.nombreCompleto} ${client.apellidosCompletos}` : '-',
+            'DNI': client ? client.dni : '-',
+            'Concepto': a.concepto || '',
+            'Moneda': a.moneda || 'PEN',
+            'Monto': Number(a.monto) || 0,
+            'Monto en Soles': Number(a.montoSoles) || 0,
+            'Observaciones': a.observaciones || '',
+        };
+    });
+
+    const today = new Date().toISOString().split('T')[0];
+    exportToExcel(rows, `Adelantos_${today}`, 'Adelantos');
 }
 
 function refreshList(container) {
@@ -92,6 +135,8 @@ function refreshList(container) {
     const totalDiv = container.querySelector('#advance-total');
     let advances = advanceRepository.getAll();
     if (selectedClientId) advances = advances.filter(a => a.clienteId === selectedClientId);
+    if (selectedDesde) advances = advances.filter(a => a.fecha >= selectedDesde);
+    if (selectedHasta) advances = advances.filter(a => a.fecha <= selectedHasta);
     advances.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
     const total = advances.reduce((sum, a) => sum + (Number(a.montoSoles) || 0), 0);
     totalDiv.textContent = advances.length > 0 ? `Total adelantos: S/ ${fmtMoney(total)}` : '';
@@ -126,9 +171,12 @@ function refreshList(container) {
     listDiv.querySelectorAll('.edit-adv-btn').forEach(btn => btn.addEventListener('click', () => {
         const adv = advances.find(a => a.id === btn.getAttribute('data-id')); if (adv) openAdvForm(container, adv);
     }));
-    listDiv.querySelectorAll('.delete-adv-btn').forEach(btn => btn.addEventListener('click', () => {
+    listDiv.querySelectorAll('.delete-adv-btn').forEach(btn => btn.addEventListener('click', async () => {
         const name = btn.getAttribute('data-name');
-        if (confirm(`¿Eliminar adelanto "${name}"?`)) { const r = deleteAdvance(btn.getAttribute('data-id')); if (r.success) refreshList(container); else alert(r.message); }
+        if (await confirmarEliminacion(`¿Eliminar adelanto "${name}"?`)) {
+            const r = deleteAdvance(btn.getAttribute('data-id'));
+            if (r.success) refreshList(container); else alert(r.message);
+        }
     }));
 }
 

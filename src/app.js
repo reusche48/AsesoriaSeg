@@ -1,7 +1,7 @@
 // Punto de entrada principal de la aplicación SPA
 // Implementa hash routing, login y control de acceso por permisos
 
-import { initStorage } from './storage.js';
+import { initStorage, loadSectionData, getCollection } from './storage.js';
 import { login, logout, restoreSession, getSession, hasAccess, getAllowedScreens, isSessionExpired } from './auth.js';
 import { renderClientSection } from './ui/clientUI.js';
 import { renderBankSection } from './ui/bankUI.js';
@@ -81,10 +81,16 @@ function buildNavigation() {
     const allowed = getAllowedScreens();
     const session = getSession();
 
-    nav.innerHTML = allowed.map(key =>
-        `<a href="#${key}" class="nav-link" data-section="${key}">${NAV_LABELS[key] || key}</a>`
-    ).join('') +
-    `<a href="#" class="nav-link" id="change-pwd-btn" title="Cambiar contraseña" style="margin-left:auto;">🔒</a>` +
+    nav.innerHTML = allowed.map(key => {
+        const badge = (key === 'alertas') ? `<span id="alerts-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.7rem;margin-left:4px;vertical-align:middle;"></span>` : '';
+        return `<a href="#${key}" class="nav-link" data-section="${key}">${NAV_LABELS[key] || key}${badge}</a>`;
+    }).join('') +
+    `<div class="nav-search-wrap" style="margin-left:auto;display:flex;align-items:center;position:relative;">
+        <input type="text" id="global-search-input" placeholder="🔍 Buscar..." autocomplete="off"
+            style="padding:0.3rem 0.6rem;border:1px solid #ccc;border-radius:4px;font-size:0.85rem;width:160px;">
+        <div id="global-search-results" style="display:none;position:absolute;top:100%;right:0;background:#fff;border:1px solid #ccc;border-radius:4px;min-width:280px;max-height:320px;overflow-y:auto;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
+    </div>` +
+    `<a href="#" class="nav-link" id="change-pwd-btn" title="Cambiar contraseña">🔒</a>` +
     `<a href="#" class="nav-link nav-logout" id="logout-btn" title="Cerrar sesión">🚪 ${session?.user?.usuario || ''}</a>`;
 
     // Cerrar menú al seleccionar
@@ -112,7 +118,7 @@ function buildNavigation() {
     }
 }
 
-function navigateTo(section) {
+async function navigateTo(section) {
     if (!hasAccess(section)) {
         const allowed = getAllowedScreens();
         section = allowed.length > 0 ? allowed[0] : null;
@@ -124,9 +130,12 @@ function navigateTo(section) {
     if (!container) return;
     const renderFn = routes[section];
     if (renderFn) {
+        container.innerHTML = '<div class="empty-state" style="padding:2rem;">Cargando...</div>';
+        updateNavActive(section);
+        await loadSectionData(section);
         container.innerHTML = '';
         renderFn(container);
-        updateNavActive(section);
+        updateAlertsBadge();
     }
 }
 
@@ -374,6 +383,7 @@ async function startApp() {
     }
 
     window.addEventListener('hashchange', () => navigateTo(getCurrentSection()));
+    setupGlobalSearch();
 
     // Verificar expiración de sesión cada minuto
     setInterval(() => {
@@ -389,6 +399,88 @@ async function startApp() {
     navigateTo(section);
 }
 
+/** Actualiza el badge de alertas vencidas en la navegación */
+export function updateAlertsBadge() {
+    const badge = document.getElementById('alerts-badge');
+    if (!badge) return;
+    import('./services/claimEventService.js').then(({ getEventsWithDeadline }) => {
+        try {
+            const vencidas = getEventsWithDeadline().filter(a => a.estadoAlerta === 'Vencido').length;
+            badge.textContent = vencidas;
+            badge.style.display = vencidas > 0 ? 'inline' : 'none';
+        } catch (e) { /* ignorar si aún no hay datos */ }
+    }).catch(() => {});
+}
+
+/** Configura la búsqueda global en el header */
+function setupGlobalSearch() {
+    const input = document.getElementById('global-search-input');
+    const results = document.getElementById('global-search-results');
+    if (!input || !results) return;
+
+    let debounceTimer;
+    input.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            const q = input.value.trim().toLowerCase();
+            if (q.length < 3) { results.style.display = 'none'; return; }
+            showGlobalResults(q, results);
+        }, 250);
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!input.contains(e.target) && !results.contains(e.target)) {
+            results.style.display = 'none';
+        }
+    });
+}
+
+function showGlobalResults(q, results) {
+    const { getCollection } = window.__storage || {};
+    const clients = (window.__getCollection?.('clients') || []);
+    const claims  = (window.__getCollection?.('claims') || []);
+    const incidents = (window.__getCollection?.('incidents') || []);
+
+    const hits = [];
+
+    for (const c of clients) {
+        const text = `${c.nombreCompleto || ''} ${c.apellidosCompletos || ''} ${c.dni || ''}`.toLowerCase();
+        if (text.includes(q)) hits.push({ tipo: 'Cliente', label: `${c.nombreCompleto} ${c.apellidosCompletos} — ${c.dni}`, section: 'fichaCliente', id: c.id });
+        if (hits.length >= 5) break;
+    }
+    for (const r of claims) {
+        if (hits.length >= 10) break;
+        const obs = (r.observaciones || '').toLowerCase();
+        const est = (r.estado || '').toLowerCase();
+        if (obs.includes(q) || est.includes(q)) hits.push({ tipo: 'Reclamo', label: `Reclamo ${r.fecha || ''} — ${r.estado || 'Pendiente'}`, section: 'reclamos', id: r.id });
+    }
+
+    if (hits.length === 0) {
+        results.style.display = 'block';
+        results.innerHTML = '<div style="padding:0.75rem;color:#666;font-size:0.85rem;">Sin resultados</div>';
+        return;
+    }
+
+    results.style.display = 'block';
+    results.innerHTML = hits.map(h => `
+        <div class="gs-item" data-section="${escapeHtmlGlobal(h.section)}" style="padding:0.6rem 0.85rem;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:0.85rem;">
+            <span style="font-size:0.75rem;background:#e3f2fd;color:#1565c0;border-radius:3px;padding:1px 5px;margin-right:6px;">${escapeHtmlGlobal(h.tipo)}</span>
+            ${escapeHtmlGlobal(h.label)}
+        </div>
+    `).join('');
+
+    results.querySelectorAll('.gs-item').forEach(item => {
+        item.addEventListener('mouseenter', () => item.style.background = '#f5f5f5');
+        item.addEventListener('mouseleave', () => item.style.background = '');
+        item.addEventListener('click', () => {
+            results.style.display = 'none';
+            const sec = item.getAttribute('data-section');
+            window.location.hash = `#${sec}`;
+            navigateTo(sec);
+        });
+    });
+}
+
 /** Inicialización principal */
 async function init() {
     const session = restoreSession();
@@ -400,4 +492,5 @@ async function init() {
 }
 
 window.__viewFile = (dataUrl, format) => openFileViewer(dataUrl, format);
+window.__getCollection = getCollection;
 document.addEventListener('DOMContentLoaded', init);

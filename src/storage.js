@@ -41,17 +41,52 @@ async function loadCollection(key) {
     }
 }
 
+// Colecciones esenciales: pequeñas, sin archivos, necesarias para dropdowns globales
+const ESSENTIAL_COLLECTIONS = ['clients', 'banks', 'insurances', 'coverages', 'cards'];
+// Colecciones pesadas: se cargan solo cuando se necesitan
+const SECTION_COLLECTIONS = {
+    bancos:           ['bankAccounts'],
+    tarjetas:         ['bankAccounts'],
+    siniestros:       ['incidents'],
+    reclamos:         ['incidents', 'claims', 'claimDetails'],
+    eventos:          ['incidents', 'claims', 'claimEvents'],
+    pendientes:       ['incidents', 'claims', 'claimEvents'],
+    seguimiento:      ['incidents', 'claims', 'claimEvents'],
+    alertas:          ['incidents', 'claims', 'claimEvents'],
+    adelantos:        ['advances'],
+    consultaAdelantos:['advances'],
+    fichaCliente:     ['incidents', 'claims', 'claimDetails', 'claimEvents', 'advances', 'bankAccounts'],
+    dashboard:        ['incidents', 'claims', 'claimEvents', 'advances'],
+    actividad:        [],
+};
+
 /**
- * Carga todas las colecciones al iniciar la app.
+ * Carga las colecciones esenciales al iniciar la app.
+ * Las colecciones pesadas se cargan por sección con loadSectionData().
  */
 export async function initStorage() {
-    const collections = [
-        'clients', 'banks', 'insurances', 'coverages',
-        'bankAccounts', 'cards', 'incidents',
-        'claims', 'claimDetails', 'claimEvents', 'advances'
-    ];
-    await Promise.all(collections.map(loadCollection));
-    console.log('Almacenamiento inicializado desde MySQL');
+    await Promise.all(ESSENTIAL_COLLECTIONS.map(loadCollection));
+}
+
+/**
+ * Carga las colecciones necesarias para una sección específica.
+ * Solo carga las que no están aún en caché.
+ * @param {string} section - Nombre de la sección (hash de la ruta)
+ */
+export async function loadSectionData(section) {
+    const needed = SECTION_COLLECTIONS[section] || [];
+    const toLoad = needed.filter(k => !cache[k] || cache[k].length === 0);
+    if (toLoad.length > 0) {
+        await Promise.all(toLoad.map(loadCollection));
+    }
+}
+
+/**
+ * Carga una lista específica de colecciones (forzado, ignora caché).
+ * @param {string[]} keys
+ */
+export async function loadCollections(keys) {
+    await Promise.all(keys.map(loadCollection));
 }
 
 /**

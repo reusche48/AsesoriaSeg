@@ -6,6 +6,7 @@ import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { auditLinkHtml, openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, showModalFieldErrors, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
+import { confirmarEliminacion, handleFileUpload } from '../utils.js';
 
 let selectedClientId = null;
 let evidenciaSeguroDataUrl = null;
@@ -124,10 +125,7 @@ function openCardForm(container, card) {
             fileInput.addEventListener('change', () => {
                 const file = fileInput.files[0];
                 if (file) {
-                    uploadFile(file).then(url => {
-                        evidenciaSeguroDataUrl = url;
-                        overlay.querySelector('#modal-ev-preview').textContent = '📎 ' + file.name;
-                    }).catch(err => alert('Error al subir archivo: ' + err.message));
+                    handleFileUpload(fileInput, url => { evidenciaSeguroDataUrl = url; }, uploadFile);
                 }
             });
         },
@@ -166,8 +164,8 @@ function refreshList(container) {
         }
     }));
     el.querySelectorAll('.edit-card-btn').forEach(b => b.addEventListener('click', () => { const c = cards.find(x => x.id === b.getAttribute('data-id')); if (c) openCardForm(container, c); }));
-    el.querySelectorAll('.delete-card-btn').forEach(b => b.addEventListener('click', () => {
-        if (confirm('¿Eliminar esta tarjeta?')) { const r = deleteCard(b.getAttribute('data-id')); if (r.success) refreshList(container); }
+    el.querySelectorAll('.delete-card-btn').forEach(b => b.addEventListener('click', async () => {
+        if (await confirmarEliminacion('¿Eliminar esta tarjeta?')) { const r = deleteCard(b.getAttribute('data-id')); if (r.success) refreshList(container); }
     }));
 }
 

@@ -34,8 +34,11 @@ export class BaseRepository {
         };
         items.unshift(newEntity);
         saveCollection(this.collectionKey, items);
-        // Persistir en MySQL (async, no bloquea)
-        saveEntity(this.collectionKey, newEntity);
+        // Persistir en MySQL (async) — notifica si falla
+        saveEntity(this.collectionKey, newEntity).catch(err => {
+            console.error(`[Repo] Error guardando en "${this.collectionKey}":`, err);
+            this._notifyWriteError('guardar');
+        });
         return newEntity;
     }
 
@@ -55,8 +58,11 @@ export class BaseRepository {
             fechaModificacion: new Date().toISOString(),
         };
         saveCollection(this.collectionKey, items);
-        // Persistir en MySQL (async)
-        updateEntity(this.collectionKey, id, items[index]);
+        // Persistir en MySQL (async) — notifica si falla
+        updateEntity(this.collectionKey, id, items[index]).catch(err => {
+            console.error(`[Repo] Error actualizando en "${this.collectionKey}":`, err);
+            this._notifyWriteError('actualizar');
+        });
         return items[index];
     }
 
@@ -69,8 +75,23 @@ export class BaseRepository {
         }
         items.splice(index, 1);
         saveCollection(this.collectionKey, items);
-        // Persistir en MySQL (async)
-        deleteEntity(this.collectionKey, id);
+        // Persistir en MySQL (async) — notifica si falla
+        deleteEntity(this.collectionKey, id).catch(err => {
+            console.error(`[Repo] Error eliminando en "${this.collectionKey}":`, err);
+            this._notifyWriteError('eliminar');
+        });
+    }
+
+    /** Muestra un toast de error si una escritura a la API falla */
+    _notifyWriteError(accion) {
+        const existing = document.getElementById('write-error-toast');
+        if (existing) return; // no acumular toasts
+        const toast = document.createElement('div');
+        toast.id = 'write-error-toast';
+        toast.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:#c62828;color:#fff;padding:0.75rem 1rem;border-radius:6px;z-index:99999;font-size:0.9rem;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+        toast.textContent = `⚠️ Error al ${accion} dato en el servidor. Recargue la página si el problema persiste.`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 6000);
     }
 
     /** Busca elementos que cumplan con el predicado. */

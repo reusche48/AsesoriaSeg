@@ -3,6 +3,7 @@ import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { coverageRepository } from '../repositories/coverageRepository.js';
 import { auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalFieldErrors, showModalAlert, clearModalErrors } from './modalHelper.js';
+import { confirmarEliminacion } from '../utils.js';
 
 let selectedInsuranceId = null;
 
@@ -85,8 +86,8 @@ function refreshList(container) {
         const c = covs.find(x => x.id === b.getAttribute('data-id'));
         if (c) openCovForm(container, c);
     }));
-    el.querySelectorAll('.delete-cov-btn').forEach(b => b.addEventListener('click', () => {
-        if (!confirm('¿Eliminar esta cobertura?')) return;
+    el.querySelectorAll('.delete-cov-btn').forEach(b => b.addEventListener('click', async () => {
+        if (!await confirmarEliminacion('¿Eliminar esta cobertura?')) return;
         const result = deleteCoverage(b.getAttribute('data-id'));
         if (result.success) { refreshList(container); }
         else { alert(result.error || 'No se pudo eliminar.'); }

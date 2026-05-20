@@ -6,17 +6,22 @@ import { bankRepository } from '../repositories/bankRepository.js';
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
+import { handleFileUpload, exportToExcel } from '../utils.js';
 
 let selectedEventEvidenceDataUrl = null;
+let eventFilterDesde = null;
+let eventFilterHasta = null;
 
 export function renderClaimEventSection(container) {
     selectedEventEvidenceDataUrl = null;
+    eventFilterDesde = null;
+    eventFilterHasta = null;
 
     container.innerHTML = `
         <div class="section">
             <h2 class="section-title">Eventos de Reclamos</h2>
-            <div class="form-row" style="align-items:flex-end;margin-bottom:1rem;">
-                <div class="form-group" style="flex:1;">
+            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;margin-bottom:1rem;">
+                <div class="form-group" style="flex:1;min-width:200px;margin:0;">
                     <label for="event-claim-search">Buscar reclamo (4+ letras)</label>
                     <div class="autocomplete-wrapper">
                         <input type="text" id="event-claim-search" placeholder="Escriba cliente o banco..." autocomplete="off">
@@ -24,7 +29,17 @@ export function renderClaimEventSection(container) {
                         <div id="event-claim-results" class="autocomplete-results"></div>
                     </div>
                 </div>
-                <div class="form-group" style="flex:0 0 auto;">
+                <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap;">
+                    <div>
+                        <label style="display:block;font-size:0.82rem;margin-bottom:0.2rem;">Desde</label>
+                        <input type="date" id="event-filter-desde" style="padding:0.45rem;border:1px solid #ccc;border-radius:4px;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:0.82rem;margin-bottom:0.2rem;">Hasta</label>
+                        <input type="date" id="event-filter-hasta" style="padding:0.45rem;border:1px solid #ccc;border-radius:4px;">
+                    </div>
+                    <button type="button" class="btn btn-secondary" id="event-filter-clear" title="Limpiar filtros">✖</button>
+                    <button type="button" class="btn btn-secondary" id="event-export-btn">📊 Excel</button>
                     <button type="button" class="btn btn-primary" id="event-add-btn">➕ Agregar Evento</button>
                 </div>
             </div>
@@ -34,7 +49,22 @@ export function renderClaimEventSection(container) {
 
     setupClaimAutocomplete(container);
     container.querySelector('#event-add-btn').addEventListener('click', () => openEventModal(container, null));
+    container.querySelector('#event-export-btn').addEventListener('click', () => exportEvents(container));
+    container.querySelector('#event-filter-desde').addEventListener('change', (e) => { eventFilterDesde = e.target.value || null; _refreshCurrentEventView(container); });
+    container.querySelector('#event-filter-hasta').addEventListener('change', (e) => { eventFilterHasta = e.target.value || null; _refreshCurrentEventView(container); });
+    container.querySelector('#event-filter-clear').addEventListener('click', () => {
+        eventFilterDesde = null; eventFilterHasta = null;
+        container.querySelector('#event-filter-desde').value = '';
+        container.querySelector('#event-filter-hasta').value = '';
+        _refreshCurrentEventView(container);
+    });
     showLatestEvents(container);
+}
+
+function _refreshCurrentEventView(container) {
+    const claimId = container.querySelector('#event-claim-id')?.value;
+    if (claimId) refreshEventList(container, claimId);
+    else showLatestEvents(container);
 }
 
 function buildClaimLabel(claim) {
@@ -237,7 +267,7 @@ function openEventModal(container, eventObj) {
             evidenceInput.addEventListener('change', () => {
                 const file = evidenceInput.files[0];
                 if (file) {
-                    uploadFile(file).then(url => { selectedEventEvidenceDataUrl = url; }).catch(err => alert('Error al subir archivo: ' + err.message));
+                    handleFileUpload(evidenceInput, url => { selectedEventEvidenceDataUrl = url; }, uploadFile);
                 } else {
                     selectedEventEvidenceDataUrl = null;
                 }
@@ -275,14 +305,48 @@ function openEventModal(container, eventObj) {
     });
 }
 
+function exportEvents(container) {
+    const claimId = container.querySelector('#event-claim-id')?.value;
+    let events = claimId ? getClaimEvents(claimId) : getLatestEvents(5000);
+    events = applyDateFilter(events);
+
+    const rows = events.map(ev => {
+        const claim = claimRepository.getById(ev.reclamoId);
+        const info = claim ? buildClaimLabel(claim) : { clientLabel: '-', bankLabel: '-' };
+        const fechaObj = new Date(ev.fecha);
+        return {
+            'Fecha': isNaN(fechaObj) ? ev.fecha : fechaObj.toLocaleDateString('es-PE') + ' ' + fechaObj.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
+            'Cliente': info.clientLabel,
+            'Banco': info.bankLabel,
+            'Descripción': ev.descripcion || '',
+            'Observación': ev.observacion || '',
+            'Días de espera': ev.diasEspera || '',
+            'Tipo de días': ev.tipoDias || '',
+        };
+    });
+
+    const today = new Date().toISOString().split('T')[0];
+    exportToExcel(rows, `Eventos_${today}`, 'Eventos');
+}
+
+function applyDateFilter(events) {
+    let filtered = events;
+    if (eventFilterDesde) filtered = filtered.filter(ev => ev.fecha >= eventFilterDesde);
+    if (eventFilterHasta) {
+        const hasta = eventFilterHasta + 'T23:59:59';
+        filtered = filtered.filter(ev => ev.fecha <= hasta);
+    }
+    return filtered;
+}
+
 function showLatestEvents(container) {
-    const events = getLatestEvents(10);
+    const events = applyDateFilter(getLatestEvents(200));
     renderEventTable(container, events, true);
 }
 
 function refreshEventList(container, claimId) {
     if (!claimId) { showLatestEvents(container); return; }
-    const events = getClaimEvents(claimId);
+    const events = applyDateFilter(getClaimEvents(claimId));
     renderEventTable(container, events, false);
 }
 
