@@ -44,43 +44,45 @@ const routes = {
     tarjetasSinSeguro: renderUninsuredCardsSection,
 };
 
-function ico(name) { return `<i data-lucide="${name}" class="nav-icon"></i>`; }
+const _S = 'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
+function ico(paths) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" ${_S} class="nav-icon" aria-hidden="true">${paths}</svg>`;
+}
 
 /** Labels para la navegación */
 const NAV_LABELS = {
-    dashboard:          `${ico('layout-dashboard')} Inicio`,
-    clientes:           `${ico('users')} Clientes`,
-    bancos:             `${ico('landmark')} Bancos`,
-    tarjetas:           `${ico('credit-card')} Tarjetas`,
-    seguros:            `${ico('shield')} Seguros`,
-    coberturas:         `${ico('list-checks')} Coberturas`,
-    siniestros:         `${ico('alert-triangle')} Siniestros`,
-    reclamos:           `${ico('file-text')} Reclamos`,
-    eventos:            `${ico('calendar-days')} Eventos`,
-    pendientes:         `${ico('clock')} Pendientes`,
-    seguimiento:        `${ico('line-chart')} Seguimiento`,
-    alertas:            `${ico('bell')} Alertas`,
-    usuarios:           `${ico('shield-check')} Usuarios`,
-    actividad:          `${ico('activity')} Actividad`,
-    adelantos:          `${ico('banknote')} Adelantos`,
-    consultaAdelantos:  `${ico('search')} Consultas`,
-    fichaCliente:       `${ico('contact')} Ficha`,
-    tarjetasSinSeguro:  `${ico('ban')} Sin Seguro`,
+    dashboard:         `${ico('<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>')} Inicio`,
+    clientes:          `${ico('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>')} Clientes`,
+    bancos:            `${ico('<line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7 12 2"/>')} Bancos`,
+    tarjetas:          `${ico('<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>')} Tarjetas`,
+    seguros:           `${ico('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>')} Seguros`,
+    coberturas:        `${ico('<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><line x1="13" y1="8" x2="21" y2="8"/><line x1="13" y1="18" x2="21" y2="18"/>')} Coberturas`,
+    siniestros:        `${ico('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>')} Siniestros`,
+    reclamos:          `${ico('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>')} Reclamos`,
+    eventos:           `${ico('<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/>')} Eventos`,
+    pendientes:        `${ico('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>')} Pendientes`,
+    seguimiento:       `${ico('<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>')} Seguimiento`,
+    alertas:           `${ico('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>')} Alertas`,
+    usuarios:          `${ico('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>')} Usuarios`,
+    actividad:         `${ico('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>')} Actividad`,
+    adelantos:         `${ico('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>')} Adelantos`,
+    consultaAdelantos: `${ico('<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>')} Consultas`,
+    fichaCliente:      `${ico('<rect x="3" y="4" width="18" height="18" rx="2"/><circle cx="12" cy="10" r="2"/><path d="M7 20v-1a5 5 0 0 1 10 0v1"/><line x1="8" y1="2" x2="8" y2="4"/><line x1="16" y1="2" x2="16" y2="4"/>')} Ficha`,
+    tarjetasSinSeguro: `${ico('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>')} Sin Seguro`,
 };
 
 /** Ítems directos en la barra (sin dropdown) */
-const NAV_DIRECT = ['dashboard', 'clientes', 'bancos', 'tarjetas', 'siniestros', 'reclamos'];
+const NAV_DIRECT = ['clientes', 'bancos', 'tarjetas', 'siniestros', 'reclamos'];
 
 /** Todo lo demás va dentro del dropdown "Más ▾" */
-const NAV_MORE_LABEL = `${ico('grid-3x3')} Más`;
+const NAV_MORE_LABEL = `${ico('<rect x="3" y="3" width="4" height="4" rx="1"/><rect x="10" y="3" width="4" height="4" rx="1"/><rect x="17" y="3" width="4" height="4" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="17" y="10" width="4" height="4" rx="1"/><rect x="3" y="17" width="4" height="4" rx="1"/><rect x="10" y="17" width="4" height="4" rx="1"/><rect x="17" y="17" width="4" height="4" rx="1"/>')} Más`;
 
 function getCurrentSection() {
     const hash = window.location.hash.replace('#', '');
     if (routes[hash] && hasAccess(hash)) return hash;
-    // Dashboard primero si tiene acceso
-    if (hasAccess('dashboard')) return 'dashboard';
-    const allowed = getAllowedScreens();
-    return allowed.length > 0 ? allowed[0] : 'dashboard';
+    if (hasAccess('clientes')) return 'clientes';
+    const allowed = getAllowedScreens().filter(k => k !== 'dashboard');
+    return allowed.length > 0 ? allowed[0] : 'clientes';
 }
 
 function updateNavActive(section) {
@@ -125,37 +127,57 @@ function buildNavigation() {
            </div>`
         : '';
 
-    nav.innerHTML = directHtml + moreHtml +
-    `<div class="nav-search-wrap" style="margin-left:auto;display:flex;align-items:center;position:relative;">
-        <input type="text" id="global-search-input" placeholder="🔍 Buscar..." autocomplete="off"
-            style="padding:0.3rem 0.6rem;border:1px solid rgba(255,255,255,0.3);border-radius:4px;font-size:0.82rem;width:140px;background:rgba(255,255,255,0.12);color:#fff;">
-        <div id="global-search-results" style="display:none;position:absolute;top:100%;right:0;background:#fff;border:1px solid #ccc;border-radius:4px;min-width:280px;max-height:320px;overflow-y:auto;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
-    </div>` +
-    `<a href="#" class="nav-link" id="change-pwd-btn" title="Cambiar contraseña" style="padding:0.4rem 0.5rem;">🔒</a>` +
-    `<a href="#" class="nav-link nav-logout" id="logout-btn" title="Cerrar sesión">🚪 ${session?.user?.usuario || ''}</a>`;
+    const userName = session?.user?.nombreCompleto || session?.user?.usuario || 'Usuario';
+    const userMenuHtml = `
+        <div class="nav-group nav-user-group" id="nav-user-menu">
+            <button type="button" class="nav-group-btn nav-user-btn" style="margin-left:auto;">
+                ${ico('<circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/>')} Hola, ${userName}
+            </button>
+            <div class="nav-dropdown nav-user-dropdown">
+                <button type="button" class="nav-dropdown-item" id="change-pwd-btn">
+                    ${ico('<path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/>')} Cambiar contraseña
+                </button>
+                <div class="nav-dropdown-separator"></div>
+                <button type="button" class="nav-dropdown-item nav-dropdown-item--danger" id="logout-btn">
+                    ${ico('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>')} Cerrar sesión
+                </button>
+            </div>
+        </div>`;
+
+    nav.innerHTML = directHtml + moreHtml + userMenuHtml;
 
     nav.querySelectorAll('.nav-link').forEach(link => {
-        link.addEventListener('click', () => nav.classList.remove('open'));
+        link.addEventListener('click', () => {
+            nav.classList.remove('open');
+            nav.querySelectorAll('.nav-group').forEach(g => g.classList.remove('open'));
+        });
     });
 
-    const logoutBtn = document.getElementById('logout-btn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            logout();
-            showLoginScreen();
+    // Toggle dropdown por click
+    nav.querySelectorAll('.nav-group-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const group = btn.closest('.nav-group');
+            const isOpen = group.classList.contains('open');
+            nav.querySelectorAll('.nav-group').forEach(g => g.classList.remove('open'));
+            if (!isOpen) group.classList.add('open');
         });
-    }
+    });
 
-    const changePwdBtn = document.getElementById('change-pwd-btn');
-    if (changePwdBtn) {
-        changePwdBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            showChangePasswordPopup();
-        });
-    }
+    // Cerrar al hacer click fuera
+    document.addEventListener('click', () => {
+        nav.querySelectorAll('.nav-group').forEach(g => g.classList.remove('open'));
+    });
 
-    if (window.lucide) window.lucide.createIcons();
+    document.getElementById('logout-btn')?.addEventListener('click', () => {
+        logout();
+        showLoginScreen();
+    });
+
+    document.getElementById('change-pwd-btn')?.addEventListener('click', () => {
+        showChangePasswordPopup();
+    });
+
 }
 
 async function navigateTo(section) {
@@ -423,7 +445,6 @@ async function startApp() {
     }
 
     window.addEventListener('hashchange', () => navigateTo(getCurrentSection()));
-    setupGlobalSearch();
 
     // Verificar expiración de sesión cada minuto
     setInterval(() => {
@@ -453,73 +474,6 @@ export function updateAlertsBadge() {
 }
 
 /** Configura la búsqueda global en el header */
-function setupGlobalSearch() {
-    const input = document.getElementById('global-search-input');
-    const results = document.getElementById('global-search-results');
-    if (!input || !results) return;
-
-    let debounceTimer;
-    input.addEventListener('input', () => {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-            const q = input.value.trim().toLowerCase();
-            if (q.length < 3) { results.style.display = 'none'; return; }
-            showGlobalResults(q, results);
-        }, 250);
-    });
-
-    document.addEventListener('click', (e) => {
-        if (!input.contains(e.target) && !results.contains(e.target)) {
-            results.style.display = 'none';
-        }
-    });
-}
-
-function showGlobalResults(q, results) {
-    const { getCollection } = window.__storage || {};
-    const clients = (window.__getCollection?.('clients') || []);
-    const claims  = (window.__getCollection?.('claims') || []);
-    const incidents = (window.__getCollection?.('incidents') || []);
-
-    const hits = [];
-
-    for (const c of clients) {
-        const text = `${c.nombreCompleto || ''} ${c.apellidosCompletos || ''} ${c.dni || ''}`.toLowerCase();
-        if (text.includes(q)) hits.push({ tipo: 'Cliente', label: `${c.nombreCompleto} ${c.apellidosCompletos} — ${c.dni}`, section: 'fichaCliente', id: c.id });
-        if (hits.length >= 5) break;
-    }
-    for (const r of claims) {
-        if (hits.length >= 10) break;
-        const obs = (r.observaciones || '').toLowerCase();
-        const est = (r.estado || '').toLowerCase();
-        if (obs.includes(q) || est.includes(q)) hits.push({ tipo: 'Reclamo', label: `Reclamo ${r.fecha || ''} — ${r.estado || 'Pendiente'}`, section: 'reclamos', id: r.id });
-    }
-
-    if (hits.length === 0) {
-        results.style.display = 'block';
-        results.innerHTML = '<div style="padding:0.75rem;color:#666;font-size:0.85rem;">Sin resultados</div>';
-        return;
-    }
-
-    results.style.display = 'block';
-    results.innerHTML = hits.map(h => `
-        <div class="gs-item" data-section="${escapeHtmlGlobal(h.section)}" style="padding:0.6rem 0.85rem;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:0.85rem;">
-            <span style="font-size:0.75rem;background:#e3f2fd;color:#1565c0;border-radius:3px;padding:1px 5px;margin-right:6px;">${escapeHtmlGlobal(h.tipo)}</span>
-            ${escapeHtmlGlobal(h.label)}
-        </div>
-    `).join('');
-
-    results.querySelectorAll('.gs-item').forEach(item => {
-        item.addEventListener('mouseenter', () => item.style.background = '#f5f5f5');
-        item.addEventListener('mouseleave', () => item.style.background = '');
-        item.addEventListener('click', () => {
-            results.style.display = 'none';
-            const sec = item.getAttribute('data-section');
-            window.location.hash = `#${sec}`;
-            navigateTo(sec);
-        });
-    });
-}
 
 /** Inicialización principal */
 async function init() {

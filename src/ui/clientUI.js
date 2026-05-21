@@ -13,15 +13,24 @@ let editingClientId = null;
 let dniFrontalDataUrl = null;
 let dniPosteriorDataUrl = null;
 
+const SVG = {
+    edit:    `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+    chart:   `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+    trash:   `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`,
+    file:    `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>`,
+    mapPin:  `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
+};
+
 export function renderClientSection(container) {
     editingClientId = null;
     container.innerHTML = `
         <div class="section">
-            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
-                <h2 class="section-title" style="margin:0;">Clientes</h2>
-                <button type="button" class="btn btn-primary" id="btn-add-client">➕ Agregar Cliente</button>
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+                <input type="text" id="client-search-input" placeholder="Ingresa un cliente" style="flex:1;padding:0.5rem 0.75rem;border:1px solid #ccc;border-radius:4px;font-size:0.95rem;">
+                <button type="button" id="btn-add-client" style="display:inline-flex;align-items:center;gap:0.4rem;white-space:nowrap;background:#0284c7;color:#fff;border:none;padding:0.48rem 1rem;border-radius:5px;font-size:0.85rem;font-weight:500;font-family:inherit;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background='#0369a1'" onmouseout="this.style.background='#0284c7'">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Agregar Cliente
+                </button>
             </div>
-            <input type="text" id="client-search-input" placeholder="Escriba 4+ letras para buscar..." style="width:100%;padding:0.5rem 0.75rem;border:1px solid #ccc;border-radius:4px;font-size:0.95rem;margin-top:0.75rem;">
             <div id="search-results" class="mt-1"></div>
         </div>
     `;
@@ -245,7 +254,7 @@ function setupSearchHandlers(container) {
     searchInput.addEventListener('input', () => {
         const query = searchInput.value.trim().toLowerCase();
         const resultsDiv = container.querySelector('#search-results');
-        if (query.length < 4) { showDefaultClients(container); return; }
+        if (query.length < 3) { showDefaultClients(container); return; }
         const matches = clientRepository.getAll().filter(c => {
             const fields = [c.nombreCompleto, c.apellidosCompletos, c.dni, c.telefono1, c.telefono2, c.email1, c.email2, c.fechaNacimiento, c.direccion];
             return fields.some(f => f && f.toLowerCase().includes(query));
@@ -257,45 +266,57 @@ function setupSearchHandlers(container) {
 
 function triggerSearch(container) {
     const input = container.querySelector('#client-search-input');
-    if (input && input.value.trim().length >= 4) { input.dispatchEvent(new Event('input')); }
+    if (input && input.value.trim().length >= 3) { input.dispatchEvent(new Event('input')); }
     else { showDefaultClients(container); }
 }
 
+function truncCell(val, n = 12) {
+    const s = val ? String(val) : '-';
+    if (s.length > n) return `<span title="${esc(s)}">${esc(s.substring(0, n))}…</span>`;
+    return esc(s);
+}
+
 function renderClientTable(mainContainer, tableContainer, clients) {
-    const rows = clients.map(c => {
+    const rows = clients.map((c, idx) => {
         const fotoBtns = [];
-        if (c.dniFrontal) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniFrontal)}" title="Ver DNI Frontal">📄</button>`);
-        if (c.dniPosterior) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniPosterior)}" title="Ver DNI Posterior">📄</button>`);
-        const fotoCell = fotoBtns.length > 0 ? fotoBtns.join(' ') : '-';
+        if (c.dniFrontal) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniFrontal)}" title="Ver DNI Frontal">${SVG.file}</button>`);
+        if (c.dniPosterior) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniPosterior)}" title="Ver DNI Posterior">${SVG.file}</button>`);
+        const fotoCell = fotoBtns.length > 0 ? `<div class="actions-wrap">${fotoBtns.join('')}</div>` : '-';
         const gpsLink = (c.gpsLatitud && c.gpsLongitud)
-            ? `<a href="https://www.google.com/maps?q=${c.gpsLatitud},${c.gpsLongitud}" target="_blank" title="${esc(c.direccion || 'Ver en mapa')}" style="text-decoration:none;">📍</a>`
+            ? `<a href="https://www.google.com/maps?q=${c.gpsLatitud},${c.gpsLongitud}" target="_blank" title="${esc(c.direccion || 'Ver en mapa')}" class="btn-icon" style="text-decoration:none;">${SVG.mapPin}</a>`
             : '';
-        const dirCell = c.direccion ? `<span title="${esc(c.direccion)}">${esc(c.direccion.length > 25 ? c.direccion.substring(0, 25) + '...' : c.direccion)}</span> ${gpsLink}` : '-';
+        const dirCell = c.direccion
+            ? `${truncCell(c.direccion)} ${gpsLink}`
+            : '-';
         return `<tr>
+            <td style="color:#94a3b8;font-size:0.78rem;width:36px;text-align:center;">${idx + 1}</td>
             <td>${esc(c.dni)}</td>
-            <td>${esc(c.nombreCompleto)}</td>
-            <td>${esc(c.apellidosCompletos)}</td>
-            <td>${esc(c.telefono1 || '-')}</td>
-            <td>${esc(c.email1 || '-')}</td>
+            <td>${truncCell(c.nombreCompleto)}</td>
+            <td>${truncCell(c.apellidosCompletos)}</td>
+            <td>${truncCell(c.telefono1 || '-')}</td>
+            <td>${truncCell(c.email1 || '-')}</td>
             <td>${dirCell}</td>
             <td class="actions">${fotoCell}</td>
             <td>${auditLinkHtml(c)}</td>
             <td class="actions">
-                <button type="button" class="btn-icon primary edit-client-btn" data-id="${esc(c.id)}" title="Editar">✏️</button>
-                <button type="button" class="btn-icon summary-client-btn" data-id="${esc(c.id)}" title="Resumen financiero" style="background:#6a1b9a;color:#fff;">📊</button>
-                <button type="button" class="btn-icon danger delete-client-btn" data-id="${esc(c.id)}" data-name="${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}" title="Eliminar">🗑️</button>
+                <div class="actions-wrap">
+                    <button type="button" class="btn-icon primary edit-client-btn" data-id="${esc(c.id)}" title="Editar">${SVG.edit}</button>
+                    <button type="button" class="btn-icon purple summary-client-btn" data-id="${esc(c.id)}" title="Resumen financiero">${SVG.chart}</button>
+                    <button type="button" class="btn-icon danger delete-client-btn" data-id="${esc(c.id)}" data-name="${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}" title="Eliminar">${SVG.trash}</button>
+                </div>
             </td>
         </tr>`;
     }).join('');
 
     tableContainer.innerHTML = `
-        <table class="data-table">
+        <div class="table-scroll"><table class="data-table">
             <thead><tr>
+                <th style="width:36px;text-align:center;">#</th>
                 <th>DNI</th><th>Nombre</th><th>Apellidos</th><th>Teléfono</th>
-                <th>Email</th><th>Dirección</th><th>DNI Foto</th><th>Registro</th><th>Acciones</th>
+                <th>Email</th><th>Dirección</th><th>DNI Foto</th><th>Registro</th><th class="actions">Acciones</th>
             </tr></thead>
             <tbody>${rows}</tbody>
-        </table>
+        </table></div>
     `;
 
     tableContainer.querySelectorAll('.view-photo-btn').forEach(btn => {
