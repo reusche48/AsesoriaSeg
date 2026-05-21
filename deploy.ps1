@@ -1,7 +1,7 @@
 # ============================================================
-# Script de Deploy - Sube archivos al servidor por FTP
-# Uso: .\deploy.ps1          → sube TODOS los archivos del proyecto
-#      .\deploy.ps1 rapido   → sube solo archivos modificados en las últimas 2 horas
+# Script de Deploy - Sube archivos a Git y luego al servidor FTP
+# Uso: .\deploy.ps1          → commit+push git + sube TODOS los archivos FTP
+#      .\deploy.ps1 rapido   → commit+push git + sube solo archivos modificados en las últimas 2 horas
 # ============================================================
 
 $FTP_HOST = "ftp://107.180.115.202"
@@ -9,47 +9,18 @@ $FTP_USER = "subeppk@sitemasperu.com"
 $FTP_PASS = "Aa@33590728"
 $REMOTE_PATH = ""
 
-# Carpetas y archivos a EXCLUIR (no van al servidor)
+# Carpetas y archivos a EXCLUIR del FTP (no van al servidor)
 $excludeDirs = @("node_modules", ".git", ".kiro", ".vscode", "database", "src\tests")
 $excludeFiles = @("package.json", "package-lock.json", "vitest.config.js", "deploy.ps1", "AsesoriaSeg.code-workspace", "diagrama_bd.html", "serve.cjs")
 
-# Modo rápido: solo archivos modificados en las últimas 2 horas
 $modo = $args[0]
 $horasAtras = 2
 
-# Modo listar: explorar carpetas del FTP para encontrar la ruta correcta
-if ($modo -eq "listar") {
-    $rutaExplorar = $args[1]
-    if (-not $rutaExplorar) { $rutaExplorar = "/" }
-    Write-Host ""
-    Write-Host "=== EXPLORANDO FTP: $rutaExplorar ===" -ForegroundColor Cyan
-    try {
-        $ftpUrl = "$FTP_HOST$rutaExplorar"
-        if (-not $ftpUrl.EndsWith("/")) { $ftpUrl += "/" }
-        $req = [System.Net.FtpWebRequest]::Create($ftpUrl)
-        $req.Method = [System.Net.WebRequestMethods+Ftp]::ListDirectoryDetails
-        $req.Credentials = New-Object System.Net.NetworkCredential($FTP_USER, $FTP_PASS)
-        $response = $req.GetResponse()
-        $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
-        $listing = $reader.ReadToEnd()
-        $reader.Close()
-        $response.Close()
-        Write-Host $listing -ForegroundColor White
-    } catch {
-        Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
-    }
-    Write-Host ""
-    Write-Host "Presione Enter para cerrar..."
-    $null = Read-Host
-    exit
-}
-
+# ============================================================
+# PASO 1: GIT — commit y push
+# ============================================================
 Write-Host ""
-if ($modo -eq "rapido") {
-    Write-Host "=== DEPLOY RAPIDO (ultimos $horasAtras horas) ===" -ForegroundColor Cyan
-} else {
-    Write-Host "=== DEPLOY COMPLETO ===" -ForegroundColor Cyan
-}
+Write-Host "=== PASO 1: GIT ===" -ForegroundColor Cyan
 Write-Host ""
 
 $projectRoot = $PSScriptRoot
@@ -65,28 +36,64 @@ if (Test-Path $indexPath) {
     Write-Host ""
 }
 
+# Verificar si hay cambios para commitear
+$gitStatus = git status --porcelain 2>&1
+if ($gitStatus) {
+    $commitMsg = "Deploy " + (Get-Date -Format "yyyy-MM-dd HH:mm")
+    Write-Host "  Archivos modificados detectados:" -ForegroundColor White
+    git status --short
+    Write-Host ""
+
+    git add -A
+    if (-not $?) {
+        Write-Host "  ERROR en git add" -ForegroundColor Red
+    } else {
+        git commit -m $commitMsg
+        if (-not $?) {
+            Write-Host "  ERROR en git commit" -ForegroundColor Red
+        } else {
+            Write-Host ""
+            git push origin main
+            if ($?) {
+                Write-Host "  Git push OK -> main" -ForegroundColor Green
+            } else {
+                Write-Host "  ERROR en git push (continuando con FTP...)" -ForegroundColor Yellow
+            }
+        }
+    }
+} else {
+    Write-Host "  Sin cambios en Git, nada que commitear." -ForegroundColor Gray
+    # Push por si hay commits locales sin subir
+    git push origin main 2>&1 | Out-Null
+}
+
+Write-Host ""
+
+# ============================================================
+# PASO 2: FTP — subir archivos al servidor
+# ============================================================
+if ($modo -eq "rapido") {
+    Write-Host "=== PASO 2: FTP RAPIDO (ultimos $horasAtras horas) ===" -ForegroundColor Cyan
+} else {
+    Write-Host "=== PASO 2: FTP COMPLETO ===" -ForegroundColor Cyan
+}
+Write-Host ""
+
 $allFiles = Get-ChildItem -Path $projectRoot -Recurse -File
 
-# Filtrar archivos
 $filesToUpload = $allFiles | Where-Object {
     $relativePath = $_.FullName.Substring($projectRoot.Length + 1)
     $skip = $false
 
-    # Excluir carpetas
     foreach ($dir in $excludeDirs) {
         if ($relativePath.StartsWith("$dir\") -or $relativePath.StartsWith("$dir/")) {
-            $skip = $true
-            break
+            $skip = $true; break
         }
     }
 
-    # Excluir archivos específicos
     if ($excludeFiles -contains $_.Name) { $skip = $true }
-
-    # Excluir archivos ocultos y .gitkeep
     if ($_.Name.StartsWith(".") -or $_.Name -eq ".gitkeep") { $skip = $true }
 
-    # Modo rápido: solo recientes
     if ($modo -eq "rapido" -and !$skip) {
         $limite = (Get-Date).AddHours(-$horasAtras)
         if ($_.LastWriteTime -lt $limite) { $skip = $true }
@@ -96,53 +103,50 @@ $filesToUpload = $allFiles | Where-Object {
 }
 
 if ($filesToUpload.Count -eq 0) {
-    Write-Host "No hay archivos para subir." -ForegroundColor Yellow
-    Write-Host "Presione Enter para cerrar..."
-    $null = Read-Host
-    exit
-}
+    Write-Host "No hay archivos para subir al FTP." -ForegroundColor Yellow
+} else {
+    Write-Host "Archivos a subir: $($filesToUpload.Count)" -ForegroundColor White
+    Write-Host ""
 
-Write-Host "Archivos a subir: $($filesToUpload.Count)" -ForegroundColor White
-Write-Host ""
+    $ok = 0
+    $fail = 0
 
-$ok = 0
-$fail = 0
+    foreach ($file in $filesToUpload) {
+        $relativePath = $file.FullName.Substring($projectRoot.Length + 1) -replace '\\','/'
+        $remoteFull = "$FTP_HOST$REMOTE_PATH/$relativePath"
 
-foreach ($file in $filesToUpload) {
-    $relativePath = $file.FullName.Substring($projectRoot.Length + 1) -replace '\\','/'
-    $remoteFull = "$FTP_HOST$REMOTE_PATH/$relativePath"
-
-    try {
-        $webclient = New-Object System.Net.WebClient
-        $webclient.Credentials = New-Object System.Net.NetworkCredential($FTP_USER, $FTP_PASS)
-        $webclient.UploadFile($remoteFull, $file.FullName)
-        Write-Host "  OK: $relativePath" -ForegroundColor Green
-        $ok++
-    } catch {
-        # Intentar crear carpeta remota si no existe
         try {
-            $parentDir = [System.IO.Path]::GetDirectoryName($relativePath) -replace '\\','/'
-            if ($parentDir) {
-                $ftpDir = "$FTP_HOST$REMOTE_PATH/$parentDir/"
-                $req = [System.Net.FtpWebRequest]::Create($ftpDir)
-                $req.Method = [System.Net.WebRequestMethods+Ftp]::MakeDirectory
-                $req.Credentials = New-Object System.Net.NetworkCredential($FTP_USER, $FTP_PASS)
-                $req.GetResponse() | Out-Null
-            }
-            # Reintentar subida
-            $webclient2 = New-Object System.Net.WebClient
-            $webclient2.Credentials = New-Object System.Net.NetworkCredential($FTP_USER, $FTP_PASS)
-            $webclient2.UploadFile($remoteFull, $file.FullName)
-            Write-Host "  OK: $relativePath (carpeta creada)" -ForegroundColor Green
+            $webclient = New-Object System.Net.WebClient
+            $webclient.Credentials = New-Object System.Net.NetworkCredential($FTP_USER, $FTP_PASS)
+            $webclient.UploadFile($remoteFull, $file.FullName)
+            Write-Host "  OK: $relativePath" -ForegroundColor Green
             $ok++
         } catch {
-            Write-Host "  ERROR: $relativePath - $($_.Exception.Message)" -ForegroundColor Red
-            $fail++
+            try {
+                $parentDir = [System.IO.Path]::GetDirectoryName($relativePath) -replace '\\','/'
+                if ($parentDir) {
+                    $ftpDir = "$FTP_HOST$REMOTE_PATH/$parentDir/"
+                    $req = [System.Net.FtpWebRequest]::Create($ftpDir)
+                    $req.Method = [System.Net.WebRequestMethods+Ftp]::MakeDirectory
+                    $req.Credentials = New-Object System.Net.NetworkCredential($FTP_USER, $FTP_PASS)
+                    $req.GetResponse() | Out-Null
+                }
+                $webclient2 = New-Object System.Net.WebClient
+                $webclient2.Credentials = New-Object System.Net.NetworkCredential($FTP_USER, $FTP_PASS)
+                $webclient2.UploadFile($remoteFull, $file.FullName)
+                Write-Host "  OK: $relativePath (carpeta creada)" -ForegroundColor Green
+                $ok++
+            } catch {
+                Write-Host "  ERROR: $relativePath - $($_.Exception.Message)" -ForegroundColor Red
+                $fail++
+            }
         }
     }
+
+    Write-Host ""
+    Write-Host "=== FTP: $ok subidos, $fail errores ===" -ForegroundColor Cyan
 }
 
 Write-Host ""
-Write-Host "=== Resultado: $ok subidos, $fail errores ===" -ForegroundColor Cyan
-Write-Host "Presione Enter para cerrar..."
-$null = Read-Host
+Write-Host "=== Deploy finalizado ===" -ForegroundColor Green
+Write-Host ""
