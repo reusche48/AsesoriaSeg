@@ -1072,3 +1072,68 @@ body {
 @media print {
     .no-print { display: none !important; }
 }
+
+/* === Client Cards (mobile) === */
+.client-cards-view { display: none; }
+
+@media (max-width: 768px) {
+    .client-table-view { display: none; }
+    .client-cards-view { display: block; margin-top: 0.75rem; }
+
+    .client-card {
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+        margin-bottom: 0.75rem;
+        overflow: hidden;
+    }
+
+    .client-card-header {
+        background: #0284c7;
+        color: #fff;
+        padding: 0.6rem 0.85rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+    }
+
+    .client-card-name {
+        font-weight: 600;
+        font-size: 0.95rem;
+    }
+
+    .client-card-dni {
+        font-size: 0.78rem;
+        opacity: 0.85;
+    }
+
+    .client-card-body {
+        padding: 0.55rem 0.85rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+
+    .client-card-row {
+        font-size: 0.84rem;
+        color: #374151;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+
+    .client-card-label {
+        font-weight: 600;
+        color: #64748b;
+        min-width: 68px;
+        flex-shrink: 0;
+    }
+
+    .client-card-footer {
+        padding: 0.45rem 0.85rem;
+        border-top: 1px solid #f0f0f0;
+        display: flex;
+        justify-content: flex-end;
+    }
+}
