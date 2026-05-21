@@ -328,7 +328,6 @@ function renderClientTable(mainContainer, tableContainer, clients) {
                 ${phones ? `<div class="client-card-row"><span class="client-card-icon">${SVG.phone}</span>${phones}</div>` : ''}
                 ${emails ? `<div class="client-card-row"><span class="client-card-icon">${SVG.email}</span>${emails}</div>` : ''}
                 ${c.direccion ? `<div class="client-card-row"><span class="client-card-icon">${SVG.mapPin}</span>${esc(c.direccion)} ${gpsLink}</div>` : ''}
-                ${fotoBtns.length > 0 ? `<div class="client-card-row">${fotoBtns.join('')}</div>` : ''}
             </div>
             <div class="client-card-actions">
                 <button type="button" class="btn-icon primary edit-client-btn" data-id="${esc(c.id)}" title="Editar">${SVG.edit}</button>
