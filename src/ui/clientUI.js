@@ -50,8 +50,30 @@ function getClientFormHtml(client) {
     const c = client || {};
     return `
         <div class="form-row">
-            <div class="form-group"><label>Foto DNI (Frontal)</label><input type="file" id="modal-dniFrontal" accept="image/*"><div id="modal-dniFrontal-preview"></div></div>
-            <div class="form-group"><label>Foto DNI (Posterior)</label><input type="file" id="modal-dniPosterior" accept="image/*"><div id="modal-dniPosterior-preview"></div></div>
+            <div class="form-group">
+                <label>Imagen DNI Delantera</label>
+                <div class="dni-upload-area" id="area-dniFrontal">
+                    <div class="dni-upload-preview" id="preview-dniFrontal"></div>
+                    <input type="file" id="gallery-dniFrontal" accept="image/*" style="display:none">
+                    <input type="file" id="camera-dniFrontal" accept="image/*" capture="environment" style="display:none">
+                    <div class="dni-upload-btns">
+                        <button type="button" class="dni-btn" id="btn-gallery-dniFrontal"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> Galería</button>
+                        <button type="button" class="dni-btn" id="btn-camera-dniFrontal"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Cámara</button>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Imagen DNI Trasera</label>
+                <div class="dni-upload-area" id="area-dniPosterior">
+                    <div class="dni-upload-preview" id="preview-dniPosterior"></div>
+                    <input type="file" id="gallery-dniPosterior" accept="image/*" style="display:none">
+                    <input type="file" id="camera-dniPosterior" accept="image/*" capture="environment" style="display:none">
+                    <div class="dni-upload-btns">
+                        <button type="button" class="dni-btn" id="btn-gallery-dniPosterior"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> Galería</button>
+                        <button type="button" class="dni-btn" id="btn-camera-dniPosterior"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Cámara</button>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="form-row">
             <div class="form-group" data-field="nombreCompleto">
@@ -173,10 +195,6 @@ function openClientForm(container, client) {
                     );
                 });
             }
-            // File inputs
-            setupFileInput(overlay, '#modal-dniFrontal', '#modal-dniFrontal-preview', (url) => { dniFrontalDataUrl = url; }, container);
-            setupFileInput(overlay, '#modal-dniPosterior', '#modal-dniPosterior-preview', (url) => { dniPosteriorDataUrl = url; }, container);
-
             // Función para guardar foto eliminada y cerrar modal
             const savePhotoAndClose = (field) => () => {
                 if (editingClientId) {
@@ -199,10 +217,59 @@ function openClientForm(container, client) {
                 }
             };
 
-            // Show existing previews
-            showPreview(overlay, '#modal-dniFrontal-preview', dniFrontalDataUrl, () => { dniFrontalDataUrl = null; }, savePhotoAndClose('dniFrontal'));
-            showPreview(overlay, '#modal-dniPosterior-preview', dniPosteriorDataUrl, () => { dniPosteriorDataUrl = null; }, savePhotoAndClose('dniPosterior'));
+            // Nuevos campos DNI
+            setupDniUpload(overlay, 'dniFrontal', (url) => { dniFrontalDataUrl = url; }, savePhotoAndClose('dniFrontal'));
+            setupDniUpload(overlay, 'dniPosterior', (url) => { dniPosteriorDataUrl = url; }, savePhotoAndClose('dniPosterior'));
+            if (dniFrontalDataUrl) renderDniPreview(overlay.querySelector('#preview-dniFrontal'), dniFrontalDataUrl, () => { dniFrontalDataUrl = null; }, savePhotoAndClose('dniFrontal'));
+            if (dniPosteriorDataUrl) renderDniPreview(overlay.querySelector('#preview-dniPosterior'), dniPosteriorDataUrl, () => { dniPosteriorDataUrl = null; }, savePhotoAndClose('dniPosterior'));
         },
+    });
+}
+
+function setupDniUpload(overlay, fieldId, onLoad, saveAndClose) {
+    const galleryInput = overlay.querySelector(`#gallery-${fieldId}`);
+    const cameraInput = overlay.querySelector(`#camera-${fieldId}`);
+    const area = overlay.querySelector(`#area-${fieldId}`);
+    const preview = overlay.querySelector(`#preview-${fieldId}`);
+    if (!area) return;
+
+    const handleFile = async (file) => {
+        if (!file) return;
+        try {
+            const url = await uploadFile(file);
+            onLoad(url);
+            renderDniPreview(preview, url, () => { onLoad(null); }, null);
+        } catch (err) {
+            alert('Error al subir archivo: ' + err.message);
+        }
+    };
+
+    overlay.querySelector(`#btn-gallery-${fieldId}`).addEventListener('click', () => galleryInput.click());
+    overlay.querySelector(`#btn-camera-${fieldId}`).addEventListener('click', () => cameraInput.click());
+    galleryInput.addEventListener('change', () => handleFile(galleryInput.files[0]));
+    cameraInput.addEventListener('change', () => handleFile(cameraInput.files[0]));
+
+    area.addEventListener('dragover', (e) => { e.preventDefault(); area.classList.add('dragover'); });
+    area.addEventListener('dragleave', () => area.classList.remove('dragover'));
+    area.addEventListener('drop', (e) => {
+        e.preventDefault();
+        area.classList.remove('dragover');
+        handleFile(e.dataTransfer.files[0]);
+    });
+}
+
+function renderDniPreview(el, dataUrl, onDelete, saveAndClose) {
+    if (!el || !dataUrl) return;
+    el.innerHTML = `<div style="position:relative;">
+        <img src="${dataUrl}" style="width:100%;max-height:160px;object-fit:cover;display:block;cursor:pointer;">
+        <button type="button" class="dni-remove-btn" title="Eliminar foto">✕</button>
+    </div>`;
+    el.querySelector('img').addEventListener('click', () => openFileViewer(dataUrl));
+    el.querySelector('.dni-remove-btn').addEventListener('click', () => {
+        if (!confirm('¿Está seguro de eliminar esta foto?')) return;
+        if (onDelete) onDelete();
+        el.innerHTML = '';
+        if (saveAndClose) saveAndClose();
     });
 }
 

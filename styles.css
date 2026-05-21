@@ -1073,6 +1073,86 @@ body {
     .no-print { display: none !important; }
 }
 
+/* === DNI Upload Area === */
+.dni-upload-area {
+    border: 2px dashed #cbd5e1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #f8fafc;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.dni-upload-area.dragover {
+    border-color: #0284c7;
+    background: #e0f2fe;
+}
+
+.dni-upload-preview {
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.dni-upload-preview:empty::before {
+    content: 'Arrastra una imagen aquí';
+    color: #94a3b8;
+    font-size: 0.85rem;
+}
+
+.dni-upload-btns {
+    display: flex;
+    border-top: 1px solid #e2e8f0;
+}
+
+.dni-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.55rem 0.5rem;
+    background: #fff;
+    border: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #374151;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s, color 0.15s;
+}
+
+.dni-btn:first-child {
+    border-right: 1px solid #e2e8f0;
+}
+
+.dni-btn:hover {
+    background: #f0f9ff;
+    color: #0284c7;
+}
+
+.dni-remove-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition: background 0.15s;
+}
+
+.dni-remove-btn:hover { background: rgba(220,38,38,0.85); }
+
 /* === Client Cards (mobile) === */
 .client-cards-view { display: none; }
 
