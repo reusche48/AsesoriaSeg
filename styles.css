@@ -1096,7 +1096,7 @@ body {
         padding: 0.6rem 0.85rem;
         display: flex;
         flex-direction: column;
-        gap: 0.05rem;
+        gap: 0;
     }
 
     .client-card-name {
