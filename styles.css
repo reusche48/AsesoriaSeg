@@ -1086,6 +1086,13 @@ body {
         box-shadow: 0 1px 6px rgba(0,0,0,0.08);
         margin-bottom: 0.75rem;
         overflow: hidden;
+        display: flex;
+        align-items: stretch;
+    }
+
+    .client-card-left {
+        flex: 1;
+        min-width: 0;
     }
 
     .client-card-header {
@@ -1130,10 +1137,14 @@ body {
         flex-shrink: 0;
     }
 
-    .client-card-footer {
-        padding: 0.45rem 0.85rem;
-        border-top: 1px solid #f0f0f0;
+    .client-card-actions {
         display: flex;
-        justify-content: flex-end;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.6rem 0.6rem;
+        border-left: 1px solid #f0f0f0;
+        background: #fafafa;
     }
 }

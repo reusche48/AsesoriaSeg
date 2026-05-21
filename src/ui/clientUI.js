@@ -316,22 +316,22 @@ function renderClientTable(mainContainer, tableContainer, clients) {
             ? `<a href="https://www.google.com/maps?q=${c.gpsLatitud},${c.gpsLongitud}" target="_blank" class="btn-icon" style="text-decoration:none;">${SVG.mapPin}</a>`
             : '';
         return `<div class="client-card">
-            <div class="client-card-header">
-                <span class="client-card-name">${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}</span>
-                <span class="client-card-dni">DNI: ${esc(c.dni)}</span>
-            </div>
-            <div class="client-card-body">
-                ${c.telefono1 ? `<div class="client-card-row"><span class="client-card-label">Teléfono</span><span>${esc(c.telefono1)}</span></div>` : ''}
-                ${c.email1 ? `<div class="client-card-row"><span class="client-card-label">Email</span><span>${esc(c.email1)}</span></div>` : ''}
-                ${c.direccion ? `<div class="client-card-row"><span class="client-card-label">Dirección</span><span>${esc(c.direccion)} ${gpsLink}</span></div>` : ''}
-            </div>
-            <div class="client-card-footer">
-                <div class="actions-wrap">
-                    ${fotoBtns.join('')}
-                    <button type="button" class="btn-icon primary edit-client-btn" data-id="${esc(c.id)}" title="Editar">${SVG.edit}</button>
-                    <button type="button" class="btn-icon purple summary-client-btn" data-id="${esc(c.id)}" title="Resumen financiero">${SVG.chart}</button>
-                    <button type="button" class="btn-icon danger delete-client-btn" data-id="${esc(c.id)}" data-name="${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}" title="Eliminar">${SVG.trash}</button>
+            <div class="client-card-left">
+                <div class="client-card-header">
+                    <span class="client-card-name">${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}</span>
+                    <span class="client-card-dni">DNI: ${esc(c.dni)}</span>
                 </div>
+                <div class="client-card-body">
+                    ${c.telefono1 ? `<div class="client-card-row"><span class="client-card-label">Teléfono</span><span>${esc(c.telefono1)}</span></div>` : ''}
+                    ${c.email1 ? `<div class="client-card-row"><span class="client-card-label">Email</span><span>${esc(c.email1)}</span></div>` : ''}
+                    ${c.direccion ? `<div class="client-card-row"><span class="client-card-label">Dirección</span><span>${esc(c.direccion)} ${gpsLink}</span></div>` : ''}
+                    ${fotoBtns.length > 0 ? `<div class="client-card-row">${fotoBtns.join('')}</div>` : ''}
+                </div>
+            </div>
+            <div class="client-card-actions">
+                <button type="button" class="btn-icon primary edit-client-btn" data-id="${esc(c.id)}" title="Editar">${SVG.edit}</button>
+                <button type="button" class="btn-icon purple summary-client-btn" data-id="${esc(c.id)}" title="Resumen financiero">${SVG.chart}</button>
+                <button type="button" class="btn-icon danger delete-client-btn" data-id="${esc(c.id)}" data-name="${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}" title="Eliminar">${SVG.trash}</button>
             </div>
         </div>`;
     }).join('');
