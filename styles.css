@@ -1147,4 +1147,13 @@ body {
         border-left: 1px solid #f0f0f0;
         background: #fafafa;
     }
+
+    .client-card-actions .btn-icon { background: transparent; color: #64748b; transform: none; }
+    .client-card-actions .btn-icon:hover { transform: none; }
+    .client-card-actions .btn-icon.primary { background: transparent; color: #0284c7; }
+    .client-card-actions .btn-icon.primary:hover { background: #e0f2fe; }
+    .client-card-actions .btn-icon.purple { background: transparent; color: #7c3aed; }
+    .client-card-actions .btn-icon.purple:hover { background: #ede9fe; }
+    .client-card-actions .btn-icon.danger { background: transparent; color: #dc2626; }
+    .client-card-actions .btn-icon.danger:hover { background: #fee2e2; }
 }
