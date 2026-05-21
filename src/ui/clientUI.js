@@ -331,7 +331,6 @@ function renderClientTable(mainContainer, tableContainer, clients) {
             </div>
             <div class="client-card-actions">
                 <button type="button" class="btn-icon primary edit-client-btn" data-id="${esc(c.id)}" title="Editar">${SVG.edit}</button>
-                <button type="button" class="btn-icon purple summary-client-btn" data-id="${esc(c.id)}" title="Resumen financiero">${SVG.chart}</button>
                 <button type="button" class="btn-icon danger delete-client-btn" data-id="${esc(c.id)}" data-name="${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}" title="Eliminar">${SVG.trash}</button>
             </div>
         </div>`;
