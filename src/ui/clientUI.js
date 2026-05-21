@@ -48,6 +48,10 @@ function getClientFormHtml(client) {
     const c = client || {};
     return `
         <div class="form-row">
+            <div class="form-group"><label>Foto DNI (Frontal)</label><input type="file" id="modal-dniFrontal" accept="image/*"><div id="modal-dniFrontal-preview"></div></div>
+            <div class="form-group"><label>Foto DNI (Posterior)</label><input type="file" id="modal-dniPosterior" accept="image/*"><div id="modal-dniPosterior-preview"></div></div>
+        </div>
+        <div class="form-row">
             <div class="form-group" data-field="nombreCompleto">
                 <label>Nombre completo *</label>
                 <input type="text" name="nombreCompleto" value="${esc(c.nombreCompleto || '')}" required>
@@ -100,10 +104,6 @@ function getClientFormHtml(client) {
                 <label>Observaciones</label>
                 <textarea name="observaciones" rows="3" placeholder="Notas adicionales sobre el cliente...">${esc(c.observaciones || '')}</textarea>
             </div>
-        </div>
-        <div class="form-row">
-            <div class="form-group"><label>Foto DNI (Frontal)</label><input type="file" id="modal-dniFrontal" accept="image/*"><div id="modal-dniFrontal-preview"></div></div>
-            <div class="form-group"><label>Foto DNI (Posterior)</label><input type="file" id="modal-dniPosterior" accept="image/*"><div id="modal-dniPosterior-preview"></div></div>
         </div>
     `;
 }
