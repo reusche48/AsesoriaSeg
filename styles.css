@@ -557,6 +557,7 @@ body {
 /* === Responsive === */
 @media (max-width: 768px) {
     .header-inner {
+        width: 100%;
         padding: 0 0.75rem;
     }
 
@@ -636,6 +637,7 @@ body {
 
     /* Contenedor principal sin margen */
     .app-container {
+        width: 100%;
         padding: 1rem;
     }
 
