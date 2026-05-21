@@ -1088,11 +1088,24 @@ body {
 }
 
 .dni-upload-preview {
-    min-height: 120px;
+    height: 150px;
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
+    overflow: hidden;
+}
+
+.dni-upload-preview div {
+    width: 100%;
+    height: 100%;
+}
+
+.dni-upload-preview img {
+    width: 100% !important;
+    height: 150px !important;
+    object-fit: cover !important;
+    display: block;
 }
 
 .dni-upload-preview:empty::before {
