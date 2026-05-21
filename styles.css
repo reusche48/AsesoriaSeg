@@ -1137,7 +1137,7 @@ body {
         background: #fafafa;
     }
 
-    .client-card-actions .btn-icon { background: transparent; color: #64748b; transform: none; }
+    .client-card-actions .btn-icon { width: 40px; height: 40px; background: transparent; color: #64748b; transform: none; border-radius: 8px; }
     .client-card-actions .btn-icon:hover { transform: none; }
     .client-card-actions .btn-icon.primary { background: transparent; color: #0284c7; }
     .client-card-actions .btn-icon.primary:hover { background: #e0f2fe; }
