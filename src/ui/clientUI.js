@@ -19,6 +19,8 @@ const SVG = {
     trash:   `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`,
     file:    `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>`,
     mapPin:  `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
+    phone:   `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.48 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.6A16 16 0 0 0 15.4 16.09l.96-.9a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`,
+    email:   `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
 };
 
 export function renderClientSection(container) {
@@ -315,18 +317,18 @@ function renderClientTable(mainContainer, tableContainer, clients) {
         const gpsLink = (c.gpsLatitud && c.gpsLongitud)
             ? `<a href="https://www.google.com/maps?q=${c.gpsLatitud},${c.gpsLongitud}" target="_blank" class="btn-icon" style="text-decoration:none;">${SVG.mapPin}</a>`
             : '';
+        const metaParts = [`DNI: ${esc(c.dni)}`];
+        if (c.fechaNacimiento) metaParts.push(`Nac: ${esc(c.fechaNacimiento)}`);
+        const phones = [c.telefono1, c.telefono2].filter(Boolean).map(esc).join(' | ');
+        const emails = [c.email1, c.email2].filter(Boolean).map(esc).join(' | ');
         return `<div class="client-card">
             <div class="client-card-left">
-                <div class="client-card-header">
-                    <span class="client-card-name">${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}</span>
-                    <span class="client-card-dni">DNI: ${esc(c.dni)}</span>
-                </div>
-                <div class="client-card-body">
-                    ${c.telefono1 ? `<div class="client-card-row"><span class="client-card-label">Teléfono</span><span>${esc(c.telefono1)}</span></div>` : ''}
-                    ${c.email1 ? `<div class="client-card-row"><span class="client-card-label">Email</span><span>${esc(c.email1)}</span></div>` : ''}
-                    ${c.direccion ? `<div class="client-card-row"><span class="client-card-label">Dirección</span><span>${esc(c.direccion)} ${gpsLink}</span></div>` : ''}
-                    ${fotoBtns.length > 0 ? `<div class="client-card-row">${fotoBtns.join('')}</div>` : ''}
-                </div>
+                <div class="client-card-name">${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}</div>
+                <div class="client-card-meta">${metaParts.join(' | ')}</div>
+                ${phones ? `<div class="client-card-row"><span class="client-card-icon">${SVG.phone}</span>${phones}</div>` : ''}
+                ${emails ? `<div class="client-card-row"><span class="client-card-icon">${SVG.email}</span>${emails}</div>` : ''}
+                ${c.direccion ? `<div class="client-card-row"><span class="client-card-icon">${SVG.mapPin}</span>${esc(c.direccion)} ${gpsLink}</div>` : ''}
+                ${fotoBtns.length > 0 ? `<div class="client-card-row">${fotoBtns.join('')}</div>` : ''}
             </div>
             <div class="client-card-actions">
                 <button type="button" class="btn-icon primary edit-client-btn" data-id="${esc(c.id)}" title="Editar">${SVG.edit}</button>
