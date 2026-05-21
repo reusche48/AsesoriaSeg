@@ -319,19 +319,17 @@ function renderClientTable(mainContainer, tableContainer, clients) {
         const gpsLink = (c.gpsLatitud && c.gpsLongitud)
             ? `<a href="https://www.google.com/maps?q=${c.gpsLatitud},${c.gpsLongitud}" target="_blank" class="btn-icon" style="text-decoration:none;">${SVG.mapPin}</a>`
             : '';
-        const t16 = (val) => { const s = val ? String(val) : ''; return s.length > 16 ? `<span title="${esc(s)}">${esc(s.substring(0, 16))}…</span>` : esc(s); };
+        const t22 = (val) => { const s = val ? String(val) : ''; return s.length > 22 ? `<span title="${esc(s)}">${esc(s.substring(0, 22))}…</span>` : (s ? esc(s) : '<span style="color:#bbb">—</span>'); };
         const fullName = `${c.nombreCompleto} ${c.apellidosCompletos}`;
-        const metaParts = [`DNI: ${esc(c.dni)}`];
-        if (c.fechaNacimiento) metaParts.push(`Nac: ${esc(c.fechaNacimiento)}`);
-        const phones = [c.telefono1, c.telefono2].filter(Boolean).map(t16).join(' | ');
-        const emails = [c.email1, c.email2].filter(Boolean).map(t16).join(' | ');
+        const phones = [c.telefono1, c.telefono2].filter(Boolean).map(t22).join(' | ') || '<span style="color:#bbb">—</span>';
+        const emails = [c.email1, c.email2].filter(Boolean).map(t22).join(' | ') || '<span style="color:#bbb">—</span>';
         return `<div class="client-card">
             <div class="client-card-left">
-                <div class="client-card-name">${t16(fullName)}</div>
-                <div class="client-card-meta">${metaParts.join(' | ')}</div>
-                ${phones ? `<div class="client-card-row"><span class="client-card-icon">${SVG.phone}</span>${phones}</div>` : ''}
-                ${emails ? `<div class="client-card-row"><span class="client-card-icon">${SVG.email}</span>${emails}</div>` : ''}
-                ${c.direccion ? `<div class="client-card-row"><span class="client-card-icon">${SVG.mapPin}</span>${t16(c.direccion)} ${gpsLink}</div>` : ''}
+                <div class="client-card-name">${t22(fullName)}</div>
+                <div class="client-card-meta">DNI: ${esc(c.dni)} | Nac: ${c.fechaNacimiento ? esc(c.fechaNacimiento) : '<span style="color:#bbb">—</span>'}</div>
+                <div class="client-card-row"><span class="client-card-icon">${SVG.phone}</span>${phones}</div>
+                <div class="client-card-row"><span class="client-card-icon">${SVG.email}</span>${emails}</div>
+                <div class="client-card-row"><span class="client-card-icon">${SVG.mapPin}</span>${t22(c.direccion)} ${gpsLink}</div>
             </div>
             <div class="client-card-actions">
                 <button type="button" class="btn-icon primary edit-client-btn" data-id="${esc(c.id)}" title="Editar">${SVG.editLg}</button>
