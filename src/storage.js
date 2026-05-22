@@ -6,6 +6,7 @@
 
 const API_BASE = 'api.php';
 const cache = {};
+const loadedKeys = new Set();
 
 /** Obtiene el nombre de usuario actual desde la sesión en localStorage */
 export function getCurrentUser() {
@@ -30,34 +31,35 @@ function buildHeaders() {
 async function loadCollection(key) {
     try {
         const res = await fetch(`${API_BASE}?collection=${key}`);
-        if (res.ok) {
-            cache[key] = await res.json();
-        } else {
-            cache[key] = [];
-        }
+        cache[key] = res.ok ? await res.json() : [];
     } catch (err) {
         console.error(`Error cargando colección "${key}":`, err);
         cache[key] = [];
     }
+    loadedKeys.add(key);
 }
 
-// Colecciones esenciales: pequeñas, sin archivos, necesarias para dropdowns globales
+// Tablas maestras (no cambian a diario): se cargan todas al login
 const ESSENTIAL_COLLECTIONS = ['clients', 'banks', 'insurances', 'coverages', 'cards'];
-// Colecciones pesadas: se cargan solo cuando se necesitan
+// Tablas transaccionales: se cargan solo cuando el usuario navega a esa sección
 const SECTION_COLLECTIONS = {
-    bancos:           ['bankAccounts'],
-    tarjetas:         ['bankAccounts'],
-    siniestros:       ['incidents'],
-    reclamos:         ['incidents', 'claims', 'claimDetails'],
-    eventos:          ['incidents', 'claims', 'claimEvents'],
-    pendientes:       ['incidents', 'claims', 'claimEvents'],
-    seguimiento:      ['incidents', 'claims', 'claimEvents'],
-    alertas:          ['incidents', 'claims', 'claimEvents'],
-    adelantos:        ['advances'],
-    consultaAdelantos:['advances'],
-    fichaCliente:     ['incidents', 'claims', 'claimDetails', 'claimEvents', 'advances', 'bankAccounts'],
-    dashboard:        ['incidents', 'claims', 'claimEvents', 'advances'],
-    actividad:        [],
+    clientes:          [],
+    bancos:            ['bankAccounts'],
+    tarjetas:          ['bankAccounts'],
+    seguros:           [],
+    coberturas:        [],
+    siniestros:        ['incidents'],
+    reclamos:          ['incidents', 'claims', 'claimDetails'],
+    eventos:           ['incidents', 'claims', 'claimEvents'],
+    pendientes:        ['incidents', 'claims', 'claimEvents'],
+    seguimiento:       ['incidents', 'claims', 'claimEvents'],
+    alertas:           ['incidents', 'claims', 'claimEvents'],
+    adelantos:         ['advances'],
+    consultaAdelantos: ['advances'],
+    fichaCliente:      ['incidents', 'claims', 'claimDetails', 'claimEvents', 'advances', 'bankAccounts'],
+    dashboard:         ['incidents', 'claims', 'claimEvents', 'advances'],
+    actividad:         [],
+    usuarios:          [],
 };
 
 /**
@@ -75,7 +77,7 @@ export async function initStorage() {
  */
 export async function loadSectionData(section) {
     const needed = SECTION_COLLECTIONS[section] || [];
-    const toLoad = needed.filter(k => !cache[k] || cache[k].length === 0);
+    const toLoad = needed.filter(k => !loadedKeys.has(k));
     if (toLoad.length > 0) {
         await Promise.all(toLoad.map(loadCollection));
     }
