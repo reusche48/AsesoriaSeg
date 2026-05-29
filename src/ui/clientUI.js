@@ -112,22 +112,18 @@ function getClientFormHtml(client) {
                 <div class="error-message" data-error="email2"></div>
             </div>
         </div>
-        <div class="form-row">
-            <div class="form-group" data-field="direccion">
-                <label>Dirección</label>
-                <input type="text" name="direccion" value="${esc(c.direccion || '')}" placeholder="Dirección del domicilio">
-            </div>
+        <div class="form-group" data-field="direccion">
+            <label>Dirección</label>
+            <input type="text" name="direccion" value="${esc(c.direccion || '')}" placeholder="Dirección del domicilio">
         </div>
         <div class="form-row">
             <div class="form-group"><label>Latitud GPS</label><input type="number" name="gpsLatitud" step="0.0000001" value="${c.gpsLatitud || ''}" placeholder="-12.0463731"></div>
             <div class="form-group"><label>Longitud GPS</label><input type="number" name="gpsLongitud" step="0.0000001" value="${c.gpsLongitud || ''}" placeholder="-77.0427934"></div>
             <div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-secondary" id="btn-get-gps">📍 Mi ubicación</button></div>
         </div>
-        <div class="form-row">
-            <div class="form-group" data-field="observaciones">
-                <label>Observaciones</label>
-                <textarea name="observaciones" rows="3" placeholder="Notas adicionales sobre el cliente...">${esc(c.observaciones || '')}</textarea>
-            </div>
+        <div class="form-group" data-field="observaciones">
+            <label>Observaciones</label>
+            <textarea name="observaciones" rows="3" placeholder="Notas adicionales sobre el cliente...">${esc(c.observaciones || '')}</textarea>
         </div>
     `;
 }
