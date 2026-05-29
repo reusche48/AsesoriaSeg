@@ -71,11 +71,27 @@ const NAV_LABELS = {
     tarjetasSinSeguro: `${ico('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>')} Sin Seguro`,
 };
 
-/** Ítems directos en la barra (sin dropdown) */
-const NAV_DIRECT = ['clientes', 'bancos', 'tarjetas', 'siniestros', 'reclamos'];
-
-/** Todo lo demás va dentro del dropdown "Más ▾" */
-const NAV_MORE_LABEL = `${ico('<rect x="3" y="3" width="4" height="4" rx="1"/><rect x="10" y="3" width="4" height="4" rx="1"/><rect x="17" y="3" width="4" height="4" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="17" y="10" width="4" height="4" rx="1"/><rect x="3" y="17" width="4" height="4" rx="1"/><rect x="10" y="17" width="4" height="4" rx="1"/><rect x="17" y="17" width="4" height="4" rx="1"/>')} Más`;
+/** Orden de items en el sidebar */
+const SIDEBAR_ORDER = [
+    'dashboard',
+    'clientes',
+    'fichaCliente',
+    'tarjetasSinSeguro',
+    'bancos',
+    'tarjetas',
+    'seguros',
+    'coberturas',
+    'siniestros',
+    'reclamos',
+    'eventos',
+    'pendientes',
+    'seguimiento',
+    'alertas',
+    'adelantos',
+    'consultaAdelantos',
+    'usuarios',
+    'actividad',
+];
 
 function getCurrentSection() {
     const hash = window.location.hash.replace('#', '');
@@ -89,17 +105,12 @@ function updateNavActive(section) {
     document.querySelectorAll('.nav-link').forEach(link => {
         link.classList.toggle('active', link.getAttribute('data-section') === section);
     });
-    // Resaltar botón "Más" si la sección activa está en su dropdown
-    document.querySelectorAll('.nav-group-btn').forEach(btn => {
-        const dropdown = btn.nextElementSibling;
-        const hasActive = dropdown && dropdown.querySelector(`.nav-link[data-section="${section}"]`);
-        btn.classList.toggle('has-active', !!hasActive);
-    });
 }
 
-/** Construye la navegación según los permisos del usuario */
+/** Construye la navegación en el sidebar según los permisos del usuario */
 function buildNavigation() {
     const nav = document.getElementById('main-nav');
+    const footer = document.getElementById('sidebar-footer');
     if (!nav) return;
 
     const allowed = new Set(getAllowedScreens());
@@ -107,67 +118,45 @@ function buildNavigation() {
 
     function navLink(key) {
         const badge = key === 'alertas'
-            ? `<span id="alerts-badge" style="display:none;background:#e53935;color:#fff;border-radius:10px;padding:1px 6px;font-size:0.7rem;margin-left:4px;vertical-align:middle;"></span>`
+            ? `<span id="alerts-badge" style="display:none;background:#7c3aed;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.7rem;margin-left:auto;"></span>`
             : '';
         return `<a href="#${key}" class="nav-link" data-section="${key}">${NAV_LABELS[key] || key}${badge}</a>`;
     }
 
-    // Ítems directos visibles
-    const directHtml = NAV_DIRECT
+    nav.innerHTML = SIDEBAR_ORDER
         .filter(k => allowed.has(k))
         .map(navLink)
         .join('');
 
-    // Ítems del dropdown "Más": todo lo que no es directo
-    const moreItems = [...allowed].filter(k => !NAV_DIRECT.includes(k));
-    const moreHtml = moreItems.length > 0
-        ? `<div class="nav-group">
-            <button type="button" class="nav-group-btn">${NAV_MORE_LABEL}</button>
-            <div class="nav-dropdown">${moreItems.map(navLink).join('')}</div>
-           </div>`
-        : '';
-
-    const userName = session?.user?.nombreCompleto || session?.user?.usuario || 'Usuario';
-    const userMenuHtml = `
-        <div class="nav-group nav-user-group" id="nav-user-menu">
-            <button type="button" class="nav-group-btn nav-user-btn" style="margin-left:auto;">
-                ${ico('<circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/>')} Hola, ${userName}
-            </button>
-            <div class="nav-dropdown nav-user-dropdown">
-                <button type="button" class="nav-dropdown-item" id="change-pwd-btn">
-                    ${ico('<path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/>')} Cambiar contraseña
-                </button>
-                <div class="nav-dropdown-separator"></div>
-                <button type="button" class="nav-dropdown-item nav-dropdown-item--danger" id="logout-btn">
-                    ${ico('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>')} Cerrar sesión
-                </button>
-            </div>
-        </div>`;
-
-    nav.innerHTML = directHtml + moreHtml + userMenuHtml;
-
+    // En mobile, cerrar sidebar al navegar
     nav.querySelectorAll('.nav-link').forEach(link => {
         link.addEventListener('click', () => {
-            nav.classList.remove('open');
-            nav.querySelectorAll('.nav-group').forEach(g => g.classList.remove('open'));
+            if (window.innerWidth <= 900) {
+                document.getElementById('sidebar')?.classList.remove('open');
+                document.getElementById('sidebar-overlay')?.classList.remove('open');
+            }
         });
     });
 
-    // Toggle dropdown por click
-    nav.querySelectorAll('.nav-group-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const group = btn.closest('.nav-group');
-            const isOpen = group.classList.contains('open');
-            nav.querySelectorAll('.nav-group').forEach(g => g.classList.remove('open'));
-            if (!isOpen) group.classList.add('open');
-        });
-    });
-
-    // Cerrar al hacer click fuera
-    document.addEventListener('click', () => {
-        nav.querySelectorAll('.nav-group').forEach(g => g.classList.remove('open'));
-    });
+    // Footer: usuario + acciones
+    if (footer) {
+        const userName = session?.user?.nombreCompleto || session?.user?.usuario || 'Usuario';
+        footer.innerHTML = `
+            <div class="sidebar-user">
+                <div class="sidebar-user-name">
+                    ${ico('<circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/>')}
+                    ${escapeHtmlGlobal(userName)}
+                </div>
+                <div class="sidebar-user-actions">
+                    <button type="button" class="sidebar-user-btn" id="change-pwd-btn">
+                        ${ico('<path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/>')} Cambiar contraseña
+                    </button>
+                    <button type="button" class="sidebar-user-btn sidebar-user-btn--danger" id="logout-btn">
+                        ${ico('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>')} Cerrar sesión
+                    </button>
+                </div>
+            </div>`;
+    }
 
     document.getElementById('logout-btn')?.addEventListener('click', () => {
         logout();
@@ -177,7 +166,6 @@ function buildNavigation() {
     document.getElementById('change-pwd-btn')?.addEventListener('click', () => {
         showChangePasswordPopup();
     });
-
 }
 
 async function navigateTo(section) {
@@ -295,17 +283,17 @@ function showChangePasswordPopup() {
             <button class="audit-close">&times;</button>
             <h3>🔒 Cambiar Contraseña</h3>
             <form id="change-pwd-form" novalidate>
-                <div class="form-group" style="margin-bottom:0.75rem;">
-                    <label style="font-weight:600;font-size:0.85rem;">Contraseña actual *</label>
-                    <input type="password" id="cpwd-actual" required style="width:100%;padding:0.4rem 0.6rem;border:1px solid #ccc;border-radius:4px;">
+                <div class="form-group">
+                    <label>Contraseña actual *</label>
+                    <input type="password" id="cpwd-actual" required placeholder="Contraseña actual">
                 </div>
-                <div class="form-group" style="margin-bottom:0.75rem;">
-                    <label style="font-weight:600;font-size:0.85rem;">Nueva contraseña *</label>
-                    <input type="password" id="cpwd-nueva" required style="width:100%;padding:0.4rem 0.6rem;border:1px solid #ccc;border-radius:4px;">
+                <div class="form-group">
+                    <label>Nueva contraseña *</label>
+                    <input type="password" id="cpwd-nueva" required placeholder="Mínimo 4 caracteres">
                 </div>
-                <div class="form-group" style="margin-bottom:0.75rem;">
-                    <label style="font-weight:600;font-size:0.85rem;">Confirmar nueva contraseña *</label>
-                    <input type="password" id="cpwd-confirmar" required style="width:100%;padding:0.4rem 0.6rem;border:1px solid #ccc;border-radius:4px;">
+                <div class="form-group">
+                    <label>Confirmar nueva contraseña *</label>
+                    <input type="password" id="cpwd-confirmar" required placeholder="Repite la nueva contraseña">
                 </div>
                 <div id="cpwd-alert"></div>
                 <button type="submit" class="btn btn-primary" style="width:100%;">Cambiar Contraseña</button>
@@ -372,24 +360,30 @@ document.addEventListener('click', (e) => {
 
 /** Muestra la pantalla de login */
 function showLoginScreen() {
-    const header = document.querySelector('.app-header');
-    if (header) header.style.display = 'none';
+    const sidebar = document.getElementById('sidebar');
+    const topbar = document.getElementById('topbar');
+    if (sidebar) sidebar.style.display = 'none';
+    if (topbar) topbar.style.display = 'none';
 
     const container = document.getElementById('app-container');
     container.innerHTML = `
-        <div style="max-width:360px;margin:80px auto;padding:2rem;">
-            <h2 style="text-align:center;margin-bottom:1.5rem;">Iniciar Sesión</h2>
+        <div style="max-width:380px;margin:10vh auto;padding:2rem;background:#111827;border:1px solid #1f2937;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+            <div style="text-align:center;margin-bottom:1.75rem;">
+                <div style="width:48px;height:48px;background:#7c3aed;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1rem;color:#fff;margin:0 auto 0.75rem;">AS</div>
+                <h2 style="font-size:1.3rem;color:#f1f5f9;margin-bottom:0.25rem;">Iniciar Sesión</h2>
+                <p style="font-size:0.85rem;color:#6b7280;">Sistema de Monitoreo de Reclamos</p>
+            </div>
             <form id="login-form" novalidate>
-                <div class="form-group" style="margin-bottom:1rem;">
+                <div class="form-group">
                     <label for="login-usuario">Usuario</label>
-                    <input type="text" id="login-usuario" required placeholder="Ingrese su usuario" style="width:100%;">
+                    <input type="text" id="login-usuario" required placeholder="Ingrese su usuario">
                 </div>
-                <div class="form-group" style="margin-bottom:1rem;">
+                <div class="form-group">
                     <label for="login-clave">Contraseña</label>
-                    <input type="password" id="login-clave" required placeholder="Ingrese su contraseña" style="width:100%;">
+                    <input type="password" id="login-clave" required placeholder="Ingrese su contraseña">
                 </div>
-                <div id="login-alert"></div>
-                <button type="submit" class="btn btn-primary" style="width:100%;">Ingresar</button>
+                <div id="login-alert" style="margin-bottom:0.5rem;"></div>
+                <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:0.65rem;">Ingresar</button>
             </form>
         </div>
     `;
@@ -401,7 +395,7 @@ function showLoginScreen() {
         const alertDiv = container.querySelector('#login-alert');
 
         if (!usuario || !clave) {
-            alertDiv.innerHTML = '<div class="alert alert-danger">Ingrese usuario y contraseña.</div>';
+            alertDiv.innerHTML = '<div class="alert alert-error">Ingrese usuario y contraseña.</div>';
             return;
         }
 
@@ -411,15 +405,17 @@ function showLoginScreen() {
         if (result.success) {
             await startApp();
         } else {
-            alertDiv.innerHTML = `<div class="alert alert-danger">${result.error}</div>`;
+            alertDiv.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
         }
     });
 }
 
 /** Inicia la app después del login */
 async function startApp() {
-    const header = document.querySelector('.app-header');
-    if (header) header.style.display = '';
+    const sidebar = document.getElementById('sidebar');
+    const topbar = document.getElementById('topbar');
+    if (sidebar) sidebar.style.display = '';
+    if (topbar) topbar.style.display = '';
 
     const container = document.getElementById('app-container');
     container.innerHTML = '<div class="empty-state">Cargando datos...</div>';
@@ -437,12 +433,23 @@ async function startApp() {
         });
     }
 
-    // Toggle menú hamburguesa
+    // Sidebar toggle (hamburguesa)
     const navToggle = document.getElementById('nav-toggle');
-    const mainNav = document.getElementById('main-nav');
-    if (navToggle && mainNav) {
-        navToggle.addEventListener('click', () => mainNav.classList.toggle('open'));
-    }
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    const sidebarClose = document.getElementById('sidebar-close');
+
+    navToggle?.addEventListener('click', () => {
+        sidebar?.classList.toggle('open');
+        sidebarOverlay?.classList.toggle('open');
+    });
+    sidebarOverlay?.addEventListener('click', () => {
+        sidebar?.classList.remove('open');
+        sidebarOverlay.classList.remove('open');
+    });
+    sidebarClose?.addEventListener('click', () => {
+        sidebar?.classList.remove('open');
+        sidebarOverlay?.classList.remove('open');
+    });
 
     window.addEventListener('hashchange', () => navigateTo(getCurrentSection()));
 

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "AsesoriaSeg-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "3001", "-s", "C:\\AsesoriaSeg"],
+      "port": 3001
+    }
+  ]
+}

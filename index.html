@@ -4,24 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Monitoreo de Reclamos</title>
-    <link rel="stylesheet" href="styles.css?v=202605212330">
+    <link rel="stylesheet" href="styles.css?v=202605290001">
 </head>
 <body>
-    <header class="app-header">
-        <div class="header-inner">
-            <div class="header-top">
-                <h1>Sistema de Monitoreo de Reclamos</h1>
-                <button class="nav-toggle" id="nav-toggle" aria-label="Abrir menú">&#9776;</button>
+    <div class="app-layout" id="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar" style="display:none">
+            <div class="sidebar-brand">
+                <div class="sidebar-logo-mark">AS</div>
+                <span class="sidebar-brand-name">AsesoriaSeg</span>
+                <button class="sidebar-close" id="sidebar-close" aria-label="Cerrar menú">&#10005;</button>
             </div>
-            <nav class="main-nav" id="main-nav">
-                <!-- Navegación generada dinámicamente según permisos del usuario -->
-            </nav>
+            <nav class="sidebar-nav" id="main-nav"></nav>
+            <div class="sidebar-footer" id="sidebar-footer"></div>
+        </aside>
+        <!-- Mobile overlay -->
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+        <!-- Main area -->
+        <div class="main-wrapper">
+            <div class="topbar" id="topbar" style="display:none">
+                <button class="topbar-toggle" id="nav-toggle" aria-label="Abrir menú">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </button>
+                <h1 class="topbar-title">Sistema de Monitoreo de Reclamos</h1>
+            </div>
+            <main id="app-container" class="app-container"></main>
         </div>
-    </header>
-
-    <main id="app-container" class="app-container">
-        <!-- Sections are rendered dynamically by the SPA router -->
-    </main>
+    </div>
 
     <!-- Modal para visualizar archivos/evidencias -->
     <div id="file-viewer-modal" class="modal-overlay" style="display:none;">
@@ -34,6 +43,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
-    <script type="module" src="src/app.js?v=202605212330"></script>
+    <script type="module" src="src/app.js?v=202605290001"></script>
 </body>
 </html>

@@ -32,8 +32,8 @@ export function renderClientSection(container) {
     container.innerHTML = `
         <div class="section">
             <div style="display:flex;align-items:center;gap:0.75rem;">
-                <input type="text" id="client-search-input" placeholder="Ingresa un cliente" style="flex:1;padding:0.5rem 0.75rem;border:1px solid #ccc;border-radius:4px;font-size:0.95rem;">
-                <button type="button" id="btn-add-client" style="display:inline-flex;align-items:center;gap:0.4rem;white-space:nowrap;background:#0284c7;color:#fff;border:none;padding:0.48rem 1rem;border-radius:5px;font-size:0.85rem;font-weight:500;font-family:inherit;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background='#0369a1'" onmouseout="this.style.background='#0284c7'">
+                <input type="text" id="client-search-input" placeholder="Ingresa un cliente" class="search-input-inline">
+                <button type="button" id="btn-add-client" class="btn btn-primary" style="white-space:nowrap;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Agregar
                 </button>
             </div>
