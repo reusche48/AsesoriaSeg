@@ -349,14 +349,6 @@ if ($action === 'login' && $method === 'POST') {
 
     // Rate limiting: máx 10 intentos fallidos por IP en 15 minutos
     try {
-        // Crear tabla si no existe
-        $pdo->exec("CREATE TABLE IF NOT EXISTS login_attempts (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            ip VARCHAR(45) NOT NULL,
-            usuario VARCHAR(100),
-            intentado_en DATETIME NOT NULL,
-            INDEX idx_ip_time (ip, intentado_en)
-        )");
         $ventana = date('Y-m-d H:i:s', strtotime('-15 minutes'));
         $stmtRL = $pdo->prepare("SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND intentado_en > ?");
         $stmtRL->execute([$ip, $ventana]);
@@ -366,7 +358,7 @@ if ($action === 'login' && $method === 'POST') {
             echo json_encode(['error' => 'Demasiados intentos fallidos. Espere 15 minutos.']);
             exit;
         }
-    } catch (PDOException $e) { /* si falla la tabla de intentos, continuar */ }
+    } catch (PDOException $e) { /* tabla de intentos no existe, continuar sin rate limiting */ }
 
     try {
         $stmt = $pdo->prepare("SELECT u.*, r.nombre AS rol_nombre FROM usuarios u INNER JOIN roles r ON u.rol_id = r.id WHERE u.usuario = ? AND u.activo = 1");
@@ -383,7 +375,7 @@ if ($action === 'login' && $method === 'POST') {
                 $claveOk = ($clave === $claveStored);
                 if ($claveOk) {
                     // Migrar a hash bcrypt
-                    $hash = password_hash($clave, PASSWORD_BCRYPT);
+                    $hash = password_hash($clave, PASSWORD_BCRYPT, ['cost' => 8]);
                     $pdo->prepare("UPDATE usuarios SET clave = ? WHERE id = ?")->execute([$hash, $user['id']]);
                 }
             }
