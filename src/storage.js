@@ -39,27 +39,28 @@ async function loadCollection(key) {
     loadedKeys.add(key);
 }
 
-// Tablas maestras (no cambian a diario): se cargan todas al login
-const ESSENTIAL_COLLECTIONS = ['clients', 'banks', 'insurances', 'coverages', 'cards'];
-// Tablas transaccionales: se cargan solo cuando el usuario navega a esa sección
+// Solo tablas livianas al login (banks ~1s, insurances ~3s, coverages ~3s)
+const ESSENTIAL_COLLECTIONS = ['banks', 'insurances', 'coverages'];
+// clients y cards se cargan lazy: son tablas grandes y lentas (30s+ sin índice)
 const SECTION_COLLECTIONS = {
-    clientes:          [],
+    clientes:          ['clients'],
     bancos:            ['bankAccounts'],
-    tarjetas:          ['bankAccounts'],
+    tarjetas:          ['clients', 'cards', 'bankAccounts'],
     seguros:           [],
     coberturas:        [],
-    siniestros:        ['incidents'],
-    reclamos:          ['incidents', 'claims', 'claimDetails'],
-    eventos:           ['incidents', 'claims', 'claimEvents'],
-    pendientes:        ['incidents', 'claims', 'claimEvents'],
-    seguimiento:       ['incidents', 'claims', 'claimEvents'],
-    alertas:           ['incidents', 'claims', 'claimEvents'],
-    adelantos:         ['advances'],
-    consultaAdelantos: ['advances'],
-    fichaCliente:      ['incidents', 'claims', 'claimDetails', 'claimEvents', 'advances', 'bankAccounts'],
-    dashboard:         ['incidents', 'claims', 'claimEvents', 'advances'],
+    siniestros:        ['clients', 'incidents'],
+    reclamos:          ['clients', 'incidents', 'claims', 'claimDetails'],
+    eventos:           ['clients', 'incidents', 'claims', 'claimEvents'],
+    pendientes:        ['clients', 'incidents', 'claims', 'claimEvents'],
+    seguimiento:       ['clients', 'incidents', 'claims', 'claimEvents'],
+    alertas:           ['clients', 'incidents', 'claims', 'claimEvents'],
+    adelantos:         ['clients', 'advances'],
+    consultaAdelantos: ['clients', 'advances'],
+    fichaCliente:      ['clients', 'cards', 'incidents', 'claims', 'claimDetails', 'claimEvents', 'advances', 'bankAccounts'],
+    dashboard:         ['clients', 'cards', 'incidents', 'claims', 'claimEvents', 'advances'],
     actividad:         [],
     usuarios:          [],
+    tarjetasSinSeguro: ['clients', 'cards'],
 };
 
 /**
