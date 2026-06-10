@@ -376,13 +376,13 @@ if ($action === 'login' && $method === 'POST') {
         $claveOk = false;
         if ($user) {
             $claveStored = $user['clave'];
-            if (password_get_info($claveStored)['algo'] !== null) {
-                // Ya está hasheada
-                $claveOk = password_verify($clave, $claveStored);
-            } else {
-                // Texto plano → comparar y migrar automáticamente al hash
+            // Intentar verificar como hash bcrypt primero (funciona en PHP 7 y 8)
+            $claveOk = password_verify($clave, $claveStored);
+            if (!$claveOk) {
+                // Fallback: comparar como texto plano (contraseñas antiguas sin hashear)
                 $claveOk = ($clave === $claveStored);
                 if ($claveOk) {
+                    // Migrar a hash bcrypt
                     $hash = password_hash($clave, PASSWORD_BCRYPT);
                     $pdo->prepare("UPDATE usuarios SET clave = ? WHERE id = ?")->execute([$hash, $user['id']]);
                 }
@@ -457,9 +457,7 @@ if ($action === 'changePassword' && $method === 'POST') {
             exit;
         }
         $stored = $row['clave'];
-        $valida = (password_get_info($stored)['algo'] !== null)
-            ? password_verify($claveActual, $stored)
-            : ($claveActual === $stored);
+        $valida = password_verify($claveActual, $stored) || ($claveActual === $stored);
         if (!$valida) {
             http_response_code(401);
             echo json_encode(['error' => 'La contraseña actual es incorrecta.']);
