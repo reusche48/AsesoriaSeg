@@ -49,7 +49,7 @@ const SECTION_COLLECTIONS = {
     seguros:           [],
     coberturas:        [],
     siniestros:        ['clients', 'incidents'],
-    reclamos:          ['clients', 'incidents', 'claims', 'claimDetails'],
+    reclamos:          ['clients', 'cards', 'incidents', 'claims', 'claimDetails'],
     eventos:           ['clients', 'incidents', 'claims', 'claimEvents'],
     pendientes:        ['clients', 'incidents', 'claims', 'claimEvents'],
     seguimiento:       ['clients', 'incidents', 'claims', 'claimEvents'],
