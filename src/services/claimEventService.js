@@ -167,6 +167,60 @@ export function updateClaimEvent(eventId, data) {
 
 
 /**
+ * Detecta reclamos activos (no Culminados) sin actividad reciente.
+ * Umbral: >=7 días sin nuevo evento; reclamos sin ningún evento: >=3 días.
+ * @returns {object[]} Lista ordenada por urgencia descendente
+ */
+export function getClaimsWithoutActivity() {
+    const claims = claimRepository.getAll().filter(c => c.estado !== 'Culminado');
+    const allEvents = claimEventRepository.getAll();
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const result = claims.map(claim => {
+        const claimEvents = allEvents.filter(e => e.reclamoId === claim.id);
+        const latestEvent = claimEvents.slice().sort(
+            (a, b) => new Date(b.fechaRegistro || b.fecha) - new Date(a.fechaRegistro || a.fecha)
+        )[0] || null;
+
+        let diasSinActividad;
+        if (!latestEvent) {
+            const base = new Date(claim.fecha ? claim.fecha + 'T00:00:00' : today);
+            base.setHours(0, 0, 0, 0);
+            diasSinActividad = Math.floor((today - base) / (1000 * 60 * 60 * 24));
+            if (diasSinActividad < 3) return null;
+        } else {
+            const fechaUlt = new Date(latestEvent.fechaRegistro || latestEvent.fecha);
+            fechaUlt.setHours(0, 0, 0, 0);
+            diasSinActividad = Math.floor((today - fechaUlt) / (1000 * 60 * 60 * 24));
+            if (diasSinActividad < 7) return null;
+        }
+
+        let nivelAlerta;
+        if (!latestEvent)               nivelAlerta = 'Sin eventos';
+        else if (diasSinActividad >= 30) nivelAlerta = 'Critico';
+        else if (diasSinActividad >= 15) nivelAlerta = 'Urgente';
+        else                             nivelAlerta = 'Atencion';
+
+        return {
+            ...claim,
+            diasSinActividad,
+            ultimaActividad: latestEvent ? (latestEvent.fechaRegistro || latestEvent.fecha) : null,
+            nivelAlerta,
+            ultimoEvento: latestEvent,
+            totalEventos: claimEvents.length,
+        };
+    }).filter(Boolean);
+
+    const order = { 'Sin eventos': 0, 'Critico': 1, 'Urgente': 2, 'Atencion': 3 };
+    return result.sort((a, b) =>
+        (order[a.nivelAlerta] ?? 4) - (order[b.nivelAlerta] ?? 4) ||
+        b.diasSinActividad - a.diasSinActividad
+    );
+}
+
+/**
  * Calcula la fecha de vencimiento sumando días naturales o laborables.
  * @param {string} fechaBase - Fecha base ISO
  * @param {number} dias - Cantidad de días

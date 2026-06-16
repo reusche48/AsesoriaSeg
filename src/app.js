@@ -471,11 +471,14 @@ async function startApp() {
 export function updateAlertsBadge() {
     const badge = document.getElementById('alerts-badge');
     if (!badge) return;
-    import('./services/claimEventService.js').then(({ getEventsWithDeadline }) => {
+    import('./services/claimEventService.js').then(({ getEventsWithDeadline, getClaimsWithoutActivity }) => {
         try {
             const vencidas = getEventsWithDeadline().filter(a => a.estadoAlerta === 'Vencido').length;
-            badge.textContent = vencidas;
-            badge.style.display = vencidas > 0 ? 'inline' : 'none';
+            const criticas = getClaimsWithoutActivity()
+                .filter(a => a.nivelAlerta === 'Critico' || a.nivelAlerta === 'Sin eventos').length;
+            const total = vencidas + criticas;
+            badge.textContent = total;
+            badge.style.display = total > 0 ? 'inline' : 'none';
         } catch (e) { /* ignorar si aún no hay datos */ }
     }).catch(() => {});
 }

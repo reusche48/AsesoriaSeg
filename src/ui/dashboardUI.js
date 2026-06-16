@@ -4,7 +4,7 @@ import { incidentRepository } from '../repositories/incidentRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { advanceRepository } from '../repositories/advanceRepository.js';
-import { getEventsWithDeadline } from '../services/claimEventService.js';
+import { getEventsWithDeadline, getClaimsWithoutActivity } from '../services/claimEventService.js';
 
 /**
  * Módulo UI para el Dashboard con gráficos y resumen general.
@@ -37,6 +37,11 @@ export function renderDashboardSection(container) {
                     <div class="dash-card-value">${stats.alertasVencidas}</div>
                     <div class="dash-card-label">Alertas Vencidas</div>
                 </div>
+                <div class="dash-card" style="background:${stats.reclamosCriticos > 0 ? '#450a0a' : '#1f2937'};border:1px solid ${stats.reclamosCriticos > 0 ? '#ef4444' : '#374151'};">
+                    <div class="dash-card-icon">🚨</div>
+                    <div class="dash-card-value" style="color:${stats.reclamosCriticos > 0 ? '#ef4444' : '#f1f5f9'};">${stats.reclamosCriticos}</div>
+                    <div class="dash-card-label">Sin Atención Crítica</div>
+                </div>
                 <div class="dash-card dash-card-purple">
                     <div class="dash-card-icon">💵</div>
                     <div class="dash-card-value">S/ ${formatMoney(stats.totalAdelantos)}</div>
@@ -57,6 +62,11 @@ export function renderDashboardSection(container) {
         </div>
 
         <div class="section mt-2">
+            <h3 class="section-title">🚨 Reclamos que Necesitan Atención</h3>
+            <div id="dashboard-sin-actividad"></div>
+        </div>
+
+        <div class="section mt-2">
             <h3 class="section-title">Últimos Eventos Registrados</h3>
             <div id="dashboard-eventos"></div>
         </div>
@@ -64,6 +74,7 @@ export function renderDashboardSection(container) {
 
     renderChartEstados(stats);
     renderChartBancos(stats);
+    renderSinActividad(container, stats);
     renderUltimosEventos(container, stats);
 }
 
@@ -92,6 +103,10 @@ function calcularEstadisticas() {
     // Alertas vencidas
     const alertasVencidas = alertas.filter(a => a.estadoAlerta === 'Vencido').length;
 
+    // Reclamos sin actividad
+    const sinActividad = getClaimsWithoutActivity();
+    const reclamosCriticos = sinActividad.filter(i => i.nivelAlerta === 'Critico' || i.nivelAlerta === 'Sin eventos').length;
+
     // Total adelantos
     const adelantos = advanceRepository.getAll();
     const totalAdelantos = adelantos.reduce((sum, a) => sum + (Number(a.montoSoles) || 0), 0);
@@ -118,6 +133,8 @@ function calcularEstadisticas() {
         porEstado,
         montoPorBanco,
         ultimosEventos,
+        sinActividad,
+        reclamosCriticos,
     };
 }
 
@@ -189,6 +206,54 @@ function renderChartBancos(stats) {
             }
         }
     });
+}
+
+function renderSinActividad(container, stats) {
+    const div = container.querySelector('#dashboard-sin-actividad');
+    if (!div) return;
+
+    const items = stats.sinActividad.slice(0, 10);
+    if (items.length === 0) {
+        div.innerHTML = '<div class="empty-state" style="color:#10b981;">✅ Todos los reclamos tienen actividad reciente.</div>';
+        return;
+    }
+
+    const nivelCfg = {
+        'Sin eventos': { color: '#ef4444', label: 'Sin eventos' },
+        'Critico':     { color: '#dc2626', label: '🔴 Crítico'  },
+        'Urgente':     { color: '#d97706', label: '🟠 Urgente'  },
+        'Atencion':    { color: '#ca8a04', label: '🟡 Atención' },
+    };
+
+    const rows = items.map(item => {
+        const incident = incidentRepository.getById(item.siniestroId);
+        const client = incident ? clientRepository.getById(incident.clienteId) : null;
+        const bank = bankRepository.getById(item.bancoId);
+        const clientName = client ? `${client.nombreCompleto} ${client.apellidosCompletos}` : '-';
+        const bankName = bank ? bank.nombre : '-';
+        const cfg = nivelCfg[item.nivelAlerta] || nivelCfg['Atencion'];
+        const diasText = item.nivelAlerta === 'Sin eventos'
+            ? `${item.diasSinActividad}d sin eventos`
+            : `${item.diasSinActividad} días sin actividad`;
+
+        return `<tr>
+            <td>${esc(clientName)}</td>
+            <td>${esc(bankName)}</td>
+            <td>${esc(item.estado || 'Pendiente')}</td>
+            <td style="color:${cfg.color};font-weight:700;">${esc(cfg.label)}</td>
+            <td style="color:${cfg.color};font-weight:700;">${diasText}</td>
+        </tr>`;
+    }).join('');
+
+    div.innerHTML = `
+        <table class="data-table">
+            <thead><tr>
+                <th>Cliente</th><th>Banco</th><th>Estado</th><th>Nivel</th><th>Sin actividad</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        ${stats.sinActividad.length > 10 ? `<p style="font-size:0.82rem;color:#9ca3af;margin-top:0.5rem;">Mostrando los 10 más críticos. Ver todos en <a href="#alertas" style="color:#7c3aed;">Alertas → Reclamos sin Actividad</a>.</p>` : ''}
+    `;
 }
 
 function renderUltimosEventos(container, stats) {
