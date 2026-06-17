@@ -24,7 +24,7 @@ export async function login(usuario, clave) {
         });
         const data = await res.json();
         if (res.ok && data.success) {
-            currentSession = { user: data.user, permisos: data.permisos, loginAt: Date.now() };
+            currentSession = { user: data.user, permisos: data.permisos, token: data.token, loginAt: Date.now() };
             localStorage.setItem(SESSION_KEY, JSON.stringify(currentSession));
             return { success: true, ...currentSession };
         }

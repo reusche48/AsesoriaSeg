@@ -8,21 +8,76 @@ const API_BASE = 'api.php';
 const cache = {};
 const loadedKeys = new Set();
 
-/** Obtiene el nombre de usuario actual desde la sesión en localStorage */
-export function getCurrentUser() {
-    try {
-        const session = JSON.parse(localStorage.getItem('auth_session'));
-        return session?.user?.usuario || null;
-    } catch (e) { return null; }
+/** Lee la sesión cruda desde localStorage */
+function getSessionRaw() {
+    try { return JSON.parse(localStorage.getItem('auth_session')); } catch (e) { return null; }
 }
 
-/** Construye headers incluyendo el usuario actual para auditoría */
-function buildHeaders() {
-    const headers = { 'Content-Type': 'application/json' };
+/** Obtiene el nombre de usuario actual desde la sesión en localStorage */
+export function getCurrentUser() {
+    return getSessionRaw()?.user?.usuario || null;
+}
+
+/** Obtiene el token de autenticación actual */
+function getToken() {
+    return getSessionRaw()?.token || null;
+}
+
+/** Construye headers con auditoría (X-Usuario) y autenticación (Bearer token) */
+function authHeaders(base = {}) {
+    const headers = { ...base };
     const user = getCurrentUser();
     if (user) headers['X-Usuario'] = user;
+    const token = getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
     return headers;
 }
+
+/** Headers para escrituras (incluye Content-Type JSON) */
+function buildHeaders() {
+    return authHeaders({ 'Content-Type': 'application/json' });
+}
+
+let _unauthorizedHandled = false;
+/** Maneja un 401: cierra sesión y vuelve al login (una sola vez, sin bloquear) */
+function handleUnauthorized() {
+    if (_unauthorizedHandled) return;
+    _unauthorizedHandled = true;
+    try {
+        localStorage.removeItem('auth_session');
+        sessionStorage.setItem('session_expired', '1');
+    } catch (e) { /* ignore */ }
+    location.reload();
+}
+
+/**
+ * Interceptor global de fetch: inyecta el token (Authorization) y el usuario
+ * (X-Usuario) en TODA petición a api.php, y centraliza el manejo del 401.
+ * Así ningún llamado directo a la API queda sin autenticar.
+ */
+(function installFetchInterceptor() {
+    if (typeof window === 'undefined' || window.__apiFetchPatched) return;
+    window.__apiFetchPatched = true;
+    const origFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : (input && input.url) || '';
+        const isApi = url.includes('api.php');
+        if (isApi) {
+            init = init ? { ...init } : {};
+            const headers = new Headers(init.headers || (typeof input !== 'string' && input.headers) || {});
+            const token = getToken();
+            if (token && !headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
+            const user = getCurrentUser();
+            if (user && !headers.has('X-Usuario')) headers.set('X-Usuario', user);
+            init.headers = headers;
+        }
+        const res = await origFetch(input, init);
+        if (isApi && res.status === 401 && !/action=login/.test(url)) {
+            handleUnauthorized();
+        }
+        return res;
+    };
+})();
 
 /**
  * Carga inicial de una colección desde la API al caché.
@@ -30,7 +85,8 @@ function buildHeaders() {
  */
 async function loadCollection(key) {
     try {
-        const res = await fetch(`${API_BASE}?collection=${key}`);
+        const res = await fetch(`${API_BASE}?collection=${key}`, { headers: authHeaders() });
+        if (res.status === 401) { handleUnauthorized(); cache[key] = []; loadedKeys.add(key); return; }
         cache[key] = res.ok ? await res.json() : [];
     } catch (err) {
         console.error(`Error cargando colección "${key}":`, err);
@@ -180,8 +236,10 @@ export async function uploadFile(file) {
     try {
         const res = await fetch(`${API_BASE}?action=upload`, {
             method: 'POST',
+            headers: authHeaders(),
             body: formData,
         });
+        if (res.status === 401) { handleUnauthorized(); throw new Error('No autorizado.'); }
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.error || 'Error al subir el archivo.');

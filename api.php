@@ -8,9 +8,19 @@
  */
 
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
+
+// CORS restringido a los dominios propios (evita lectura cross-origin por terceros)
+$allowedOrigins = [
+    'https://www.sitemasperu.com',
+    'https://sitemasperu.com',
+];
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if (in_array($origin, $allowedOrigins, true)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Vary: Origin');
+}
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, X-Usuario');
+header('Access-Control-Allow-Headers: Content-Type, X-Usuario, Authorization');
 
 // Preflight CORS
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -26,6 +36,12 @@ if (file_exists(__DIR__ . '/config.php')) {
     define('DB_USER', 'usuadmin');
     define('DB_PASS', 'Aa@33590728');
     define('DB_NAME', 'asesoria_seguros');
+}
+
+// Secreto para firmar/verificar tokens. Si config.php no lo define, se deriva
+// de forma determinista de DB_PASS (valor disponible solo en el servidor).
+if (!defined('AUTH_SECRET')) {
+    define('AUTH_SECRET', hash('sha256', DB_PASS . '|asesoria-auth-v1'));
 }
 
 try {
@@ -326,6 +342,63 @@ function getAuditInfo() {
 }
 
 // ============================================================
+// Autenticación por token (HMAC, sin estado)
+// ============================================================
+
+function b64url_encode($data) {
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+}
+function b64url_decode($data) {
+    return base64_decode(strtr($data, '-_', '+/'));
+}
+
+/** Genera un token firmado para un usuario. TTL por defecto 3 horas. */
+function makeAuthToken($user, $ttl = 10800) {
+    $payload = b64url_encode(json_encode([
+        'uid' => $user['id'],
+        'usr' => $user['usuario'],
+        'rol' => $user['rolNombre'] ?? null,
+        'exp' => time() + $ttl,
+    ]));
+    $sig = b64url_encode(hash_hmac('sha256', $payload, AUTH_SECRET, true));
+    return $payload . '.' . $sig;
+}
+
+/** Verifica un token. Retorna el payload (array) o null si es inválido/expirado. */
+function verifyAuthToken($token) {
+    if (!$token || strpos($token, '.') === false) return null;
+    [$payload, $sig] = explode('.', $token, 2);
+    $expected = b64url_encode(hash_hmac('sha256', $payload, AUTH_SECRET, true));
+    if (!hash_equals($expected, $sig)) return null;
+    $data = json_decode(b64url_decode($payload), true);
+    if (!is_array($data) || ($data['exp'] ?? 0) < time()) return null;
+    return $data;
+}
+
+/** Extrae el token del header Authorization: Bearer xxx */
+function getRequestToken() {
+    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    if (!$auth && function_exists('getallheaders')) {
+        foreach (getallheaders() as $k => $v) {
+            if (strtolower($k) === 'authorization') { $auth = $v; break; }
+        }
+    }
+    if (preg_match('/Bearer\s+(.+)/i', $auth, $m)) return trim($m[1]);
+    return '';
+}
+
+/** Exige un token válido; si no, responde 401 y termina. Retorna el payload. */
+function requireAuth() {
+    $data = verifyAuthToken(getRequestToken());
+    if (!$data) {
+        http_response_code(401);
+        echo json_encode(['error' => 'No autorizado. Inicie sesión nuevamente.']);
+        exit;
+    }
+    return $data;
+}
+
+// ============================================================
 // Router
 // ============================================================
 
@@ -402,16 +475,19 @@ if ($action === 'login' && $method === 'POST') {
         $stmtP->execute([$user['rol_id']]);
         $pantallas = $stmtP->fetchAll(PDO::FETCH_COLUMN);
 
+        $userOut = [
+            'id' => $user['id'],
+            'usuario' => $user['usuario'],
+            'nombreCompleto' => $user['nombre_completo'],
+            'rolId' => $user['rol_id'],
+            'rolNombre' => $user['rol_nombre'],
+        ];
+
         echo json_encode([
             'success' => true,
-            'user' => [
-                'id' => $user['id'],
-                'usuario' => $user['usuario'],
-                'nombreCompleto' => $user['nombre_completo'],
-                'rolId' => $user['rol_id'],
-                'rolNombre' => $user['rol_nombre'],
-            ],
+            'user' => $userOut,
             'permisos' => $pantallas,
+            'token' => makeAuthToken($userOut),
         ]);
     } catch (PDOException $e) {
         http_response_code(500);
@@ -419,6 +495,12 @@ if ($action === 'login' && $method === 'POST') {
     }
     exit;
 }
+
+// ============================================================
+// A PARTIR DE AQUÍ TODO REQUIERE TOKEN VÁLIDO
+// (login es el único endpoint público; ya fue manejado arriba)
+// ============================================================
+$AUTH = requireAuth();
 
 // ========== CAMBIAR CONTRASEÑA (usuario logueado) ==========
 if ($action === 'changePassword' && $method === 'POST') {
@@ -539,6 +621,11 @@ if ($action === 'activity' && $method === 'GET') {
 
 // ========== RESETEAR CONTRASEÑA (solo admin) ==========
 if ($action === 'resetPassword' && $method === 'POST') {
+    if (($AUTH['rol'] ?? null) !== 'Administrador') {
+        http_response_code(403);
+        echo json_encode(['error' => 'Solo un administrador puede resetear contraseñas.']);
+        exit;
+    }
     $input = json_decode(file_get_contents('php://input'), true);
     $userId = $input['userId'] ?? '';
 
