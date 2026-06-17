@@ -62,6 +62,7 @@ export async function renderActivitySection(container) {
             (r.usuario || '').toLowerCase().includes(q) ||
             (r.entidad || '').toLowerCase().includes(q) ||
             (r.accion || '').toLowerCase().includes(q) ||
+            (r.descripcion || '').toLowerCase().includes(q) ||
             (r.equipo || '').toLowerCase().includes(q)
         );
         renderTable(container, filtered);
@@ -83,7 +84,9 @@ function renderTable(container, data) {
         const fecha = formatFecha(r.fecha);
         const accionStyle = r.accion === 'Creación'
             ? 'color:#2e7d32;font-weight:bold;'
-            : 'color:#e65100;font-weight:bold;';
+            : r.accion === 'Eliminación'
+                ? 'color:#c62828;font-weight:bold;'
+                : 'color:#e65100;font-weight:bold;';
 
         return `
             <tr>
@@ -91,6 +94,7 @@ function renderTable(container, data) {
                 <td>${esc(r.usuario || '-')}</td>
                 <td style="${accionStyle}">${esc(r.accion)}</td>
                 <td>${esc(r.entidad)}</td>
+                <td style="font-size:0.82rem;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.descripcion || '')}">${esc(r.descripcion || '-')}</td>
                 <td style="font-size:0.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.equipo || '')}">${esc(r.equipo || '-')}</td>
             </tr>
         `;
@@ -105,6 +109,7 @@ function renderTable(container, data) {
                     <th>Usuario</th>
                     <th>Acción</th>
                     <th>Entidad</th>
+                    <th>Detalle</th>
                     <th>Equipo</th>
                 </tr>
             </thead>

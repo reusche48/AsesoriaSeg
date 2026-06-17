@@ -341,6 +341,18 @@ function getAuditInfo() {
     ];
 }
 
+/** Genera una descripción legible de una fila eliminada para el log de auditoría */
+function describeDeleted($row) {
+    $candidatos = ['descripcion', 'nombre_completo', 'nombre', 'numero', 'observacion', 'observaciones'];
+    $label = null;
+    foreach ($candidatos as $c) {
+        if (!empty($row[$c])) { $label = mb_substr($row[$c], 0, 120); break; }
+    }
+    $fecha = $row['fecha'] ?? $row['fecha_creacion'] ?? null;
+    $partes = array_filter([$label, $fecha]);
+    return $partes ? implode(' — ', $partes) : ('registro ' . ($row['id'] ?? ''));
+}
+
 // ============================================================
 // Autenticación por token (HMAC, sin estado)
 // ============================================================
@@ -611,6 +623,23 @@ if ($action === 'activity' && $method === 'GET') {
         } catch (PDOException $e) { /* ignorar */ }
     }
 
+    // Eliminaciones (desde el log de auditoría)
+    try {
+        $stmtDel = $pdo->prepare("SELECT coleccion, registro_id, descripcion, usuario, equipo, fecha FROM auditoria_eliminaciones WHERE fecha BETWEEN ? AND ?");
+        $stmtDel->execute([$fechaInicio, $fechaFinDb]);
+        foreach ($stmtDel->fetchAll() as $row) {
+            $results[] = [
+                'entidad' => $tablas[$row['coleccion']] ?? $row['coleccion'],
+                'accion' => 'Eliminación',
+                'usuario' => $row['usuario'],
+                'equipo' => $row['equipo'],
+                'fecha' => $row['fecha'],
+                'registroId' => $row['registro_id'],
+                'descripcion' => $row['descripcion'],
+            ];
+        }
+    } catch (PDOException $e) { /* tabla de auditoría aún no existe */ }
+
     usort($results, function($a, $b) {
         return strcmp($b['fecha'] ?? '', $a['fecha'] ?? '');
     });
@@ -856,6 +885,21 @@ try {
                 echo json_encode(['error' => 'ID requerido']);
                 exit;
             }
+
+            // Registrar la eliminación en auditoría ANTES de borrar (no debe romper el borrado)
+            try {
+                $rowStmt = $pdo->prepare("SELECT * FROM $table WHERE id = ?");
+                $rowStmt->execute([$id]);
+                $delRow = $rowStmt->fetch();
+                if ($delRow) {
+                    $audit = getAuditInfo();
+                    $pdo->prepare("INSERT INTO auditoria_eliminaciones (id, coleccion, registro_id, descripcion, usuario, equipo, fecha) VALUES (?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([
+                            generateUUID(), $table, $id, describeDeleted($delRow),
+                            $audit['usuario'], $audit['equipo'], date('Y-m-d H:i:s'),
+                        ]);
+                }
+            } catch (PDOException $e) { /* si la tabla de auditoría no existe o falla, continuar */ }
 
             if ($collection === 'cards') {
                 $pdo->prepare('DELETE FROM tarjetas_cuentas WHERE tarjeta_id = ?')->execute([$id]);

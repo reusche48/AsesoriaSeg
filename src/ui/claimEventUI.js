@@ -1,5 +1,6 @@
 import { addClaimEvent, getClaimEvents, getLatestEvents, updateClaimEvent } from '../services/claimEventService.js';
 import { claimRepository } from '../repositories/claimRepository.js';
+import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
@@ -9,6 +10,7 @@ import { uploadFile } from '../storage.js';
 import { handleFileUpload, exportToExcel } from '../utils.js';
 
 let selectedEventEvidenceDataUrl = null;
+let eventEvidenceUploading = false;
 let eventFilterDesde = null;
 let eventFilterHasta = null;
 let pendingPreselectClaimId = null;
@@ -224,8 +226,9 @@ function openEventModal(container, eventObj) {
         </div>
         <div class="form-row">
             <div class="form-group">
-                <label>Evidencia (archivo opcional)</label>
-                <input type="file" id="modal-event-evidence">
+                <label>Evidencia (PDF, JPG, PNG — opcional)</label>
+                <input type="file" id="modal-event-evidence" accept=".pdf,.jpg,.jpeg,.png,.webp">
+                <div id="modal-event-evidence-status" style="font-size:0.82rem;margin-top:4px;min-height:1.3em;"></div>
             </div>
         </div>
         <div class="form-row">
@@ -287,19 +290,60 @@ function openEventModal(container, eventObj) {
                 });
             });
 
-            // Evidence file
+            // Evidence file con feedback visual y opción de quitar
             const evidenceInput = overlay.querySelector('#modal-event-evidence');
-            evidenceInput.addEventListener('change', () => {
-                const file = evidenceInput.files[0];
-                if (file) {
-                    handleFileUpload(evidenceInput, url => { selectedEventEvidenceDataUrl = url; }, uploadFile);
-                } else {
-                    selectedEventEvidenceDataUrl = null;
+            const evStatus = overlay.querySelector('#modal-event-evidence-status');
+
+            function renderEvStatus() {
+                if (eventEvidenceUploading) {
+                    evStatus.innerHTML = '<span style="color:#f59e0b;">⏳ Subiendo archivo...</span>';
+                    return;
                 }
+                if (selectedEventEvidenceDataUrl) {
+                    evStatus.innerHTML = `<span style="color:#10b981;">✓ Evidencia adjunta</span>
+                        <a href="#" id="ev-ver" style="color:#7c3aed;margin-left:8px;">Ver</a>
+                        <a href="#" id="ev-quitar" style="color:#ef4444;margin-left:8px;">Quitar</a>`;
+                    evStatus.querySelector('#ev-ver').addEventListener('click', (e) => {
+                        e.preventDefault();
+                        openFileViewer(selectedEventEvidenceDataUrl);
+                    });
+                    evStatus.querySelector('#ev-quitar').addEventListener('click', (e) => {
+                        e.preventDefault();
+                        selectedEventEvidenceDataUrl = null;
+                        evidenceInput.value = '';
+                        renderEvStatus();
+                    });
+                } else {
+                    evStatus.innerHTML = '<span style="color:#9ca3af;">Sin evidencia</span>';
+                }
+            }
+            renderEvStatus();
+
+            evidenceInput.addEventListener('change', async () => {
+                const file = evidenceInput.files[0];
+                if (!file) { renderEvStatus(); return; }
+                eventEvidenceUploading = true;
+                renderEvStatus();
+                try {
+                    const url = await uploadFile(file);
+                    selectedEventEvidenceDataUrl = url;
+                } catch (err) {
+                    selectedEventEvidenceDataUrl = null;
+                    evidenceInput.value = '';
+                    eventEvidenceUploading = false;
+                    evStatus.innerHTML = `<span style="color:#ef4444;">Error al subir: ${escapeHtml(err.message || 'inténtelo de nuevo')}</span>`;
+                    return;
+                }
+                eventEvidenceUploading = false;
+                renderEvStatus();
             });
         },
         onSubmit: (form) => {
             clearModalErrors();
+            if (eventEvidenceUploading) {
+                showModalAlert('Espere a que termine de subir la evidencia antes de guardar.', 'error');
+                return;
+            }
             const claimId = form.querySelector('#modal-event-claim-id').value;
             const fecha = form.querySelector('#modal-event-fecha').value;
             const descripcion = form.querySelector('#modal-event-descripcion').value;
@@ -412,6 +456,7 @@ function renderEventTable(container, events, showClaimInfo) {
                 <td>${auditLinkHtml(ev)}</td>
                 <td class="actions">
                     <button type="button" class="btn-icon primary edit-event-btn" data-id="${escapeHtml(ev.id)}" title="Editar">✏️</button>
+                    <button type="button" class="btn-icon danger delete-event-btn" data-id="${escapeHtml(ev.id)}" title="Eliminar">🗑️</button>
                 </td>
             </tr>
         `;
@@ -436,6 +481,20 @@ function renderEventTable(container, events, showClaimInfo) {
             const allEvents = getLatestEvents(999);
             const ev = allEvents.find(e => e.id === btn.getAttribute('data-id'));
             if (ev) openEventModal(container, ev);
+        });
+    });
+
+    listContent.querySelectorAll('.delete-event-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-id');
+            const ev = getLatestEvents(9999).find(e => e.id === id);
+            const fechaTxt = ev ? new Date(ev.fecha).toLocaleDateString('es-PE') : '';
+            const label = ev ? `"${ev.descripcion || 'evento'}" (${fechaTxt})` : 'este evento';
+            if (!confirm(`¿Eliminar ${label}?\n\nLa eliminación quedará registrada en auditoría (quién y cuándo). Esta acción no se puede deshacer.`)) return;
+            claimEventRepository.delete(id);
+            const mainClaimId = container.querySelector('#event-claim-id')?.value;
+            if (mainClaimId) refreshEventList(container, mainClaimId);
+            else showLatestEvents(container);
         });
     });
 }
