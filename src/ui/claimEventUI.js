@@ -11,6 +11,16 @@ import { handleFileUpload, exportToExcel } from '../utils.js';
 let selectedEventEvidenceDataUrl = null;
 let eventFilterDesde = null;
 let eventFilterHasta = null;
+let pendingPreselectClaimId = null;
+
+/**
+ * Pre-selecciona un reclamo para que al entrar a la sección Eventos
+ * se muestren directamente todos sus eventos.
+ * @param {string} claimId
+ */
+export function setEventPreselectClaim(claimId) {
+    pendingPreselectClaimId = claimId || null;
+}
 
 export function renderClaimEventSection(container) {
     selectedEventEvidenceDataUrl = null;
@@ -58,7 +68,22 @@ export function renderClaimEventSection(container) {
         container.querySelector('#event-filter-hasta').value = '';
         _refreshCurrentEventView(container);
     });
-    showLatestEvents(container);
+
+    // Si se entró con un reclamo pre-seleccionado (ej: desde Alertas → Ver Historial)
+    if (pendingPreselectClaimId) {
+        const claim = claimRepository.getById(pendingPreselectClaimId);
+        if (claim) {
+            const info = buildClaimLabel(claim);
+            container.querySelector('#event-claim-search').value = info.text;
+            container.querySelector('#event-claim-id').value = claim.id;
+            refreshEventList(container, claim.id);
+        } else {
+            showLatestEvents(container);
+        }
+        pendingPreselectClaimId = null;
+    } else {
+        showLatestEvents(container);
+    }
 }
 
 function _refreshCurrentEventView(container) {

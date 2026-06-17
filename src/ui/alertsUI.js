@@ -1,11 +1,17 @@
-import { getEventsWithDeadline, addClaimEvent, getClaimsWithoutActivity, getClaimEvents } from '../services/claimEventService.js';
+import { getEventsWithDeadline, addClaimEvent, getClaimsWithoutActivity } from '../services/claimEventService.js';
 import { claimRepository } from '../repositories/claimRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
-import { openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
+import { setEventPreselectClaim } from './claimEventUI.js';
+
+/** Navega a la sección Eventos mostrando todos los eventos del reclamo. */
+function verHistorialEnEventos(claimId) {
+    setEventPreselectClaim(claimId);
+    window.location.hash = '#eventos';
+}
 
 // Holds evidence URL between file upload and form submit
 let _alertEvidenceUrl = null;
@@ -136,11 +142,7 @@ function renderVencimientos(container, events) {
 
     content.querySelectorAll('.ver-historial-venc-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            openHistorialModal(
-                btn.getAttribute('data-claim'),
-                btn.getAttribute('data-client'),
-                btn.getAttribute('data-bank')
-            );
+            verHistorialEnEventos(btn.getAttribute('data-claim'));
         });
     });
 }
@@ -229,11 +231,7 @@ function renderInactividad(container, items) {
 
     content.querySelectorAll('.ver-historial-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            openHistorialModal(
-                btn.getAttribute('data-claim'),
-                btn.getAttribute('data-client'),
-                btn.getAttribute('data-bank')
-            );
+            verHistorialEnEventos(btn.getAttribute('data-claim'));
         });
     });
 
@@ -356,63 +354,6 @@ function openClaimEventFormModal(container, reclamoId, eventoOrigenId) {
                 });
             }
         }
-    });
-}
-
-// ──────────────────────────────────────────────
-// Modal: historial de eventos de un reclamo
-// ──────────────────────────────────────────────
-function openHistorialModal(claimId, clientName, bankName) {
-    const events = getClaimEvents(claimId);
-
-    let bodyHtml;
-    if (events.length === 0) {
-        bodyHtml = '<div class="empty-state" style="padding:1.5rem 0;">Este reclamo no tiene eventos registrados.</div>';
-    } else {
-        const rows = events.map(ev => {
-            const fechaEvento = formatDateTime(ev.fecha);
-            const fechaReg = ev.fechaRegistro ? formatDateTime(ev.fechaRegistro) : '—';
-            let evidenciaCell = '—';
-            if (ev.evidencia) {
-                evidenciaCell = `<a href="${esc(ev.evidencia)}" target="_blank"
-                    style="color:#7c3aed;text-decoration:underline;font-size:0.82rem;"
-                    onclick="event.preventDefault(); window.open('${esc(ev.evidencia)}', '_blank');">Ver</a>`;
-            }
-            const diasInfo = ev.diasEspera
-                ? `<br><span style="font-size:0.75rem;color:#9ca3af;">${ev.diasEspera}d ${ev.tipoDias === 'laborables' ? 'lab.' : 'nat.'}</span>`
-                : '';
-            return `<tr>
-                <td style="white-space:nowrap;">${fechaEvento}</td>
-                <td style="white-space:nowrap;">${fechaReg}</td>
-                <td>${esc(ev.descripcion || '—')}${diasInfo}</td>
-                <td style="max-width:280px;">${esc(ev.observacion || '—')}</td>
-                <td>${evidenciaCell}</td>
-            </tr>`;
-        }).join('');
-
-        bodyHtml = `
-            <div style="font-size:0.82rem;color:#9ca3af;margin-bottom:0.75rem;">
-                ${events.length} evento${events.length !== 1 ? 's' : ''} registrado${events.length !== 1 ? 's' : ''}, del más reciente al más antiguo.
-            </div>
-            <div style="overflow-x:auto;">
-                <table class="data-table">
-                    <thead><tr>
-                        <th>Fecha y Hora</th>
-                        <th>Fecha Registro</th>
-                        <th>Descripción</th>
-                        <th>Observación</th>
-                        <th>Evidencia</th>
-                    </tr></thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>`;
-    }
-
-    openFormModal({
-        title: `Historial de Eventos — ${clientName} / ${bankName}`,
-        html: bodyHtml,
-        submitLabel: 'Cerrar',
-        onSubmit: () => { closeFormModal(); }
     });
 }
 
