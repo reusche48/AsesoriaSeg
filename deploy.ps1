@@ -92,7 +92,8 @@ $filesToUpload = $allFiles | Where-Object {
     }
 
     if ($excludeFiles -contains $_.Name) { $skip = $true }
-    if ($_.Name.StartsWith(".") -or $_.Name -eq ".gitkeep") { $skip = $true }
+    # Omitir dotfiles EXCEPTO .htaccess (necesario en el servidor para control de caché)
+    if (($_.Name.StartsWith(".") -and $_.Name -ne ".htaccess") -or $_.Name -eq ".gitkeep") { $skip = $true }
 
     if ($modo -eq "rapido" -and !$skip) {
         $limite = (Get-Date).AddHours(-$horasAtras)
