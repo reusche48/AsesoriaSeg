@@ -1,10 +1,14 @@
-import { getEventsWithDeadline, addClaimEvent, getClaimsWithoutActivity } from '../services/claimEventService.js';
+import { getEventsWithDeadline, addClaimEvent, getClaimsWithoutActivity, getClaimEvents } from '../services/claimEventService.js';
 import { claimRepository } from '../repositories/claimRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import { openFileViewer } from '../app.js';
-import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
+import { openFormModal, closeFormModal, clearModalErrors } from './modalHelper.js';
+import { uploadFile } from '../storage.js';
+
+// Holds evidence URL between file upload and form submit
+let _alertEvidenceUrl = null;
 
 export function renderAlertsSection(container) {
     const events = getEventsWithDeadline();
@@ -86,9 +90,21 @@ function renderVencimientos(container, events) {
 
         const tipoLabel = ev.tipoDias === 'laborables' ? 'Lab.' : 'Nat.';
 
-        const followupBtn = !ev.respondido
-            ? `<button type="button" class="btn-icon primary followup-btn" data-id="${esc(ev.id)}" data-reclamo="${esc(ev.reclamoId)}" title="Registrar seguimiento">➕</button>`
-            : `<span style="color:#10b981;" title="Ya tiene respuesta">✅</span>`;
+        const accionCell = !ev.respondido
+            ? `<div style="display:flex;gap:4px;align-items:center;">
+                   <button type="button" class="btn btn-secondary ver-historial-venc-btn"
+                       style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;"
+                       data-claim="${esc(ev.reclamoId)}"
+                       data-client="${esc(clientLabel)}"
+                       data-bank="${esc(bankLabel)}"
+                       title="Ver todos los eventos de este reclamo">Ver Historial</button>
+                   <button type="button" class="btn btn-primary followup-btn"
+                       style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;"
+                       data-id="${esc(ev.id)}"
+                       data-reclamo="${esc(ev.reclamoId)}"
+                       title="Registrar seguimiento de este evento">+ Seguimiento</button>
+               </div>`
+            : `<span style="color:#10b981;" title="Ya tiene respuesta">✅ Respondido</span>`;
 
         return `<tr>
             <td>${esc(clientLabel)}</td>
@@ -99,7 +115,7 @@ function renderVencimientos(container, events) {
             <td>${formatDate(ev.fechaVencimiento)}</td>
             <td style="${diasStyle}">${diasLabel}</td>
             <td style="${estadoStyle}">${esc(ev.estadoAlerta)}</td>
-            <td>${followupBtn}</td>
+            <td>${accionCell}</td>
         </tr>`;
     }).join('');
 
@@ -114,7 +130,17 @@ function renderVencimientos(container, events) {
 
     content.querySelectorAll('.followup-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            openFollowupModal(container, btn.getAttribute('data-id'), btn.getAttribute('data-reclamo'));
+            openClaimEventFormModal(container, btn.getAttribute('data-reclamo'), btn.getAttribute('data-id'));
+        });
+    });
+
+    content.querySelectorAll('.ver-historial-venc-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            openHistorialModal(
+                btn.getAttribute('data-claim'),
+                btn.getAttribute('data-client'),
+                btn.getAttribute('data-bank')
+            );
         });
     });
 }
@@ -166,12 +192,22 @@ function renderInactividad(container, items) {
             <td>${item.totalEventos}</td>
             <td>${badge}</td>
             <td>
-                <button type="button" class="btn btn-primary registrar-evento-btn"
-                    style="padding:0.3rem 0.7rem;font-size:0.8rem;white-space:nowrap;"
-                    data-claim="${esc(item.id)}"
-                    title="Registrar nuevo evento para este reclamo">
-                    + Evento
-                </button>
+                <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+                    <button type="button" class="btn btn-secondary ver-historial-btn"
+                        style="padding:0.3rem 0.65rem;font-size:0.78rem;white-space:nowrap;"
+                        data-claim="${esc(item.id)}"
+                        data-client="${esc(clientLabel)}"
+                        data-bank="${esc(bankLabel)}"
+                        title="Ver todos los eventos de este reclamo">
+                        Ver Historial
+                    </button>
+                    <button type="button" class="btn btn-primary registrar-evento-btn"
+                        style="padding:0.3rem 0.65rem;font-size:0.78rem;white-space:nowrap;"
+                        data-claim="${esc(item.id)}"
+                        title="Registrar nuevo evento para este reclamo">
+                        + Evento
+                    </button>
+                </div>
             </td>
         </tr>`;
     }).join('');
@@ -191,56 +227,123 @@ function renderInactividad(container, items) {
             <tbody>${rows}</tbody>
         </table>`;
 
+    content.querySelectorAll('.ver-historial-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            openHistorialModal(
+                btn.getAttribute('data-claim'),
+                btn.getAttribute('data-client'),
+                btn.getAttribute('data-bank')
+            );
+        });
+    });
+
     content.querySelectorAll('.registrar-evento-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            openNuevoEventoModal(container, btn.getAttribute('data-claim'));
+            openClaimEventFormModal(container, btn.getAttribute('data-claim'), null);
         });
     });
 }
 
 // ──────────────────────────────────────────────
-// Modales
+// Modal de evento completo (Seguimiento y Nuevo Evento)
+// eventoOrigenId != null → es un seguimiento de un vencimiento
+// eventoOrigenId == null → es un evento nuevo
 // ──────────────────────────────────────────────
-function openFollowupModal(container, eventoOrigenId, reclamoId) {
+function openClaimEventFormModal(container, reclamoId, eventoOrigenId) {
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
     const defaultDateTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    _alertEvidenceUrl = null;
 
-    openFormModal({
-        title: 'Registrar Seguimiento',
-        html: `
-            <div class="form-row">
-                <div class="form-group" data-field="fecha">
-                    <label>Fecha y hora *</label>
-                    <input type="datetime-local" id="modal-followup-fecha" value="${defaultDateTime}" required>
-                    <div class="error-message" data-error="fecha"></div>
-                </div>
-                <div class="form-group" data-field="descripcion">
-                    <label>Descripción *</label>
-                    <select id="modal-followup-descripcion" required>
-                        <option value="Avance del reclamo" selected>Avance del reclamo</option>
-                        <option value="Documentación enviada">Documentación enviada</option>
-                        <option value="Reclamo observado">Reclamo observado</option>
-                        <option value="Reclamo indemnizado">Reclamo indemnizado</option>
-                        <option value="Reclamo rechazado">Reclamo rechazado</option>
-                    </select>
-                    <div class="error-message" data-error="descripcion"></div>
-                </div>
+    const isFollowup = !!eventoOrigenId;
+    const title = isFollowup ? 'Registrar Seguimiento' : 'Registrar Evento';
+    const descOptions = ['Reclamo presentado','Documentación enviada','En revisión','Reclamo observado','Avance del reclamo','Reclamo indemnizado','Reclamo rechazado'];
+    const defaultDesc = isFollowup ? 'Avance del reclamo' : 'Reclamo presentado';
+
+    const html = `
+        <div class="form-row">
+            <div class="form-group" data-field="fecha">
+                <label>Fecha y hora *</label>
+                <input type="datetime-local" id="modal-alerta-fecha" value="${defaultDateTime}" required>
+                <div class="error-message" data-error="fecha"></div>
             </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group" data-field="descripcion">
+                <label>Descripción *</label>
+                <select id="modal-alerta-descripcion" required>
+                    <option value="">-- Seleccione --</option>
+                    ${descOptions.map(d => `<option value="${d}"${d === defaultDesc ? ' selected' : ''}>${d}</option>`).join('')}
+                </select>
+                <div class="error-message" data-error="descripcion"></div>
+            </div>
+        </div>
+        <div class="form-row">
             <div class="form-group" data-field="observacion">
                 <label>Observación *</label>
-                <textarea id="modal-followup-observacion" rows="3" required placeholder="Describa la respuesta o avance..."></textarea>
+                <textarea id="modal-alerta-observacion" rows="3" required placeholder="Describa en detalle el estado o avance del reclamo..."></textarea>
                 <div class="error-message" data-error="observacion"></div>
-            </div>`,
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Evidencia (archivo opcional)</label>
+                <input type="file" id="modal-alerta-evidencia">
+                <div id="modal-alerta-evidencia-status" style="font-size:0.8rem;color:#9ca3af;margin-top:4px;min-height:1.2em;"></div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Días de espera para respuesta</label>
+                <input type="number" id="modal-alerta-dias" min="1" step="1" placeholder="Ej: 30 (opcional)">
+            </div>
+            <div class="form-group">
+                <label>Tipo de días</label>
+                <select id="modal-alerta-tipodias">
+                    <option value="naturales">Días naturales</option>
+                    <option value="laborables">Días laborables (L-V)</option>
+                </select>
+            </div>
+        </div>`;
+
+    openFormModal({
+        title,
+        html,
         submitLabel: 'Registrar',
+        onOpen: (overlay) => {
+            const evidenciaInput = overlay.querySelector('#modal-alerta-evidencia');
+            const statusDiv = overlay.querySelector('#modal-alerta-evidencia-status');
+            evidenciaInput.addEventListener('change', () => {
+                const file = evidenciaInput.files[0];
+                if (!file) { _alertEvidenceUrl = null; statusDiv.textContent = ''; return; }
+                statusDiv.textContent = 'Subiendo archivo...';
+                statusDiv.style.color = '#9ca3af';
+                uploadFile(file)
+                    .then(url => {
+                        _alertEvidenceUrl = url;
+                        statusDiv.textContent = '✓ Archivo subido correctamente';
+                        statusDiv.style.color = '#10b981';
+                    })
+                    .catch(() => {
+                        statusDiv.textContent = 'Error al subir el archivo.';
+                        statusDiv.style.color = '#ef4444';
+                        _alertEvidenceUrl = null;
+                    });
+            });
+        },
         onSubmit: (form) => {
             clearModalErrors();
+            const diasStr = form.querySelector('#modal-alerta-dias').value;
+            const dias = diasStr ? parseInt(diasStr) : null;
             const result = addClaimEvent(
                 reclamoId,
-                form.querySelector('#modal-followup-fecha').value,
-                form.querySelector('#modal-followup-descripcion').value,
-                form.querySelector('#modal-followup-observacion').value,
-                null, null, null, eventoOrigenId
+                form.querySelector('#modal-alerta-fecha').value,
+                form.querySelector('#modal-alerta-descripcion').value,
+                form.querySelector('#modal-alerta-observacion').value,
+                _alertEvidenceUrl,
+                dias,
+                dias ? form.querySelector('#modal-alerta-tipodias').value : null,
+                eventoOrigenId
             );
             if (result.success) {
                 closeFormModal();
@@ -256,76 +359,60 @@ function openFollowupModal(container, eventoOrigenId, reclamoId) {
     });
 }
 
-function openNuevoEventoModal(container, reclamoId) {
-    const now = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    const defaultDateTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+// ──────────────────────────────────────────────
+// Modal: historial de eventos de un reclamo
+// ──────────────────────────────────────────────
+function openHistorialModal(claimId, clientName, bankName) {
+    const events = getClaimEvents(claimId);
+
+    let bodyHtml;
+    if (events.length === 0) {
+        bodyHtml = '<div class="empty-state" style="padding:1.5rem 0;">Este reclamo no tiene eventos registrados.</div>';
+    } else {
+        const rows = events.map(ev => {
+            const fechaEvento = formatDateTime(ev.fecha);
+            const fechaReg = ev.fechaRegistro ? formatDateTime(ev.fechaRegistro) : '—';
+            let evidenciaCell = '—';
+            if (ev.evidencia) {
+                evidenciaCell = `<a href="${esc(ev.evidencia)}" target="_blank"
+                    style="color:#7c3aed;text-decoration:underline;font-size:0.82rem;"
+                    onclick="event.preventDefault(); window.open('${esc(ev.evidencia)}', '_blank');">Ver</a>`;
+            }
+            const diasInfo = ev.diasEspera
+                ? `<br><span style="font-size:0.75rem;color:#9ca3af;">${ev.diasEspera}d ${ev.tipoDias === 'laborables' ? 'lab.' : 'nat.'}</span>`
+                : '';
+            return `<tr>
+                <td style="white-space:nowrap;">${fechaEvento}</td>
+                <td style="white-space:nowrap;">${fechaReg}</td>
+                <td>${esc(ev.descripcion || '—')}${diasInfo}</td>
+                <td style="max-width:280px;">${esc(ev.observacion || '—')}</td>
+                <td>${evidenciaCell}</td>
+            </tr>`;
+        }).join('');
+
+        bodyHtml = `
+            <div style="font-size:0.82rem;color:#9ca3af;margin-bottom:0.75rem;">
+                ${events.length} evento${events.length !== 1 ? 's' : ''} registrado${events.length !== 1 ? 's' : ''}, del más reciente al más antiguo.
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead><tr>
+                        <th>Fecha y Hora</th>
+                        <th>Fecha Registro</th>
+                        <th>Descripción</th>
+                        <th>Observación</th>
+                        <th>Evidencia</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+    }
 
     openFormModal({
-        title: 'Registrar Nuevo Evento',
-        html: `
-            <div class="form-row">
-                <div class="form-group" data-field="fecha">
-                    <label>Fecha y hora *</label>
-                    <input type="datetime-local" id="modal-evento-fecha" value="${defaultDateTime}" required>
-                    <div class="error-message" data-error="fecha"></div>
-                </div>
-                <div class="form-group" data-field="descripcion">
-                    <label>Descripción *</label>
-                    <select id="modal-evento-descripcion" required>
-                        <option value="Reclamo presentado">Reclamo presentado</option>
-                        <option value="Avance del reclamo" selected>Avance del reclamo</option>
-                        <option value="Documentación enviada">Documentación enviada</option>
-                        <option value="Reclamo observado">Reclamo observado</option>
-                        <option value="Reclamo indemnizado">Reclamo indemnizado</option>
-                        <option value="Reclamo rechazado">Reclamo rechazado</option>
-                    </select>
-                    <div class="error-message" data-error="descripcion"></div>
-                </div>
-            </div>
-            <div class="form-group" data-field="observacion">
-                <label>Observación *</label>
-                <textarea id="modal-evento-observacion" rows="3" required placeholder="Detalle el estado actual del reclamo..."></textarea>
-                <div class="error-message" data-error="observacion"></div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Días de espera (opcional)</label>
-                    <input type="number" id="modal-evento-dias" min="1" max="365" placeholder="Ej: 15">
-                </div>
-                <div class="form-group">
-                    <label>Tipo días</label>
-                    <select id="modal-evento-tipodias">
-                        <option value="naturales">Naturales</option>
-                        <option value="laborables">Laborables</option>
-                    </select>
-                </div>
-            </div>`,
-        submitLabel: 'Registrar Evento',
-        onSubmit: (form) => {
-            clearModalErrors();
-            const dias = parseInt(form.querySelector('#modal-evento-dias').value) || null;
-            const result = addClaimEvent(
-                reclamoId,
-                form.querySelector('#modal-evento-fecha').value,
-                form.querySelector('#modal-evento-descripcion').value,
-                form.querySelector('#modal-evento-observacion').value,
-                null,
-                dias,
-                dias ? form.querySelector('#modal-evento-tipodias').value : null,
-                null
-            );
-            if (result.success) {
-                closeFormModal();
-                renderAlertsSection(container);
-            } else {
-                const overlay = document.querySelector('.form-modal-overlay');
-                if (overlay) result.errors.forEach(err => {
-                    const el = overlay.querySelector(`[data-error="${err.field}"]`);
-                    if (el) el.textContent = err.message;
-                });
-            }
-        }
+        title: `Historial de Eventos — ${clientName} / ${bankName}`,
+        html: bodyHtml,
+        submitLabel: 'Cerrar',
+        onSubmit: () => { closeFormModal(); }
     });
 }
 
@@ -334,7 +421,7 @@ function openNuevoEventoModal(container, reclamoId) {
 // ──────────────────────────────────────────────
 function esc(str) {
     const div = document.createElement('div');
-    div.textContent = str;
+    div.textContent = str ?? '';
     return div.innerHTML;
 }
 
