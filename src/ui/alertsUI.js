@@ -15,25 +15,60 @@ function verHistorialEnEventos(claimId) {
 
 // Holds evidence URL between file upload and form submit
 let _alertEvidenceUrl = null;
+// Filtro de cliente activo en la sección Alertas (se conserva entre re-renders)
+let alertClientFilter = '';
+
+/** Nombre completo del cliente de un reclamo (objeto claim). */
+function clientNameForClaim(claim) {
+    if (!claim) return '';
+    const incident = incidentRepository.getById(claim.siniestroId);
+    const client = incident ? clientRepository.getById(incident.clienteId) : null;
+    return client ? `${client.nombreCompleto} ${client.apellidosCompletos}` : '';
+}
+
+/** Nombre del cliente a partir del id de reclamo. */
+function clientNameForClaimId(claimId) {
+    return clientNameForClaim(claimRepository.getById(claimId));
+}
+
+/** ¿El nombre coincide con el filtro de cliente actual? (vacío = todos) */
+function matchesClientFilter(name) {
+    const f = alertClientFilter.trim().toLowerCase();
+    if (!f) return true;
+    return (name || '').toLowerCase().includes(f);
+}
 
 export function renderAlertsSection(container) {
-    const events = getEventsWithDeadline();
-    const inactive = getClaimsWithoutActivity();
+    const allEvents = getEventsWithDeadline();
+    const allInactive = getClaimsWithoutActivity();
 
-    const countVenc = events.filter(e => e.estadoAlerta === 'Vencido' || e.estadoAlerta === 'Vence hoy').length;
-    const countInact = inactive.filter(i => i.nivelAlerta === 'Critico' || i.nivelAlerta === 'Sin eventos').length;
+    // Lista de clientes con alertas, para sugerencias del buscador
+    const nombresSet = new Set();
+    allEvents.forEach(e => { const n = clientNameForClaimId(e.reclamoId); if (n) nombresSet.add(n); });
+    allInactive.forEach(i => { const n = clientNameForClaim(i); if (n) nombresSet.add(n); });
+    const sugerencias = [...nombresSet].sort();
 
     container.innerHTML = `
         <div class="section">
             <h2 class="section-title">⚠️ Alertas</h2>
+            <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem;">
+                <div class="form-group" style="flex:1;min-width:240px;margin:0;">
+                    <label for="alert-client-search">Buscar por cliente</label>
+                    <input type="text" id="alert-client-search" list="alert-client-list" autocomplete="off"
+                        placeholder="Escriba un cliente para filtrar (vacío = todos)" value="${esc(alertClientFilter)}">
+                    <datalist id="alert-client-list">
+                        ${sugerencias.map(n => `<option value="${esc(n)}"></option>`).join('')}
+                    </datalist>
+                </div>
+                <button type="button" class="btn btn-secondary" id="alert-clear-filter" title="Limpiar filtro">✖ Limpiar</button>
+            </div>
+            <div id="alert-filter-hint" style="font-size:0.82rem;color:#9ca3af;margin-bottom:0.75rem;"></div>
             <div class="tab-bar" style="display:flex;gap:8px;margin-bottom:1rem;border-bottom:2px solid #1f2937;padding-bottom:0;">
                 <button class="tab-btn active" data-tab="vencimientos" style="padding:0.5rem 1.1rem;border:none;border-radius:6px 6px 0 0;background:#7c3aed;color:#fff;font-weight:600;font-size:0.9rem;cursor:pointer;">
-                    Vencimientos de Plazos
-                    ${countVenc > 0 ? `<span style="background:#ef4444;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.75rem;margin-left:6px;">${countVenc}</span>` : ''}
+                    Vencimientos de Plazos <span id="tab-badge-venc"></span>
                 </button>
                 <button class="tab-btn" data-tab="inactividad" style="padding:0.5rem 1.1rem;border:none;border-radius:6px 6px 0 0;background:#1f2937;color:#9ca3af;font-weight:600;font-size:0.9rem;cursor:pointer;">
-                    Reclamos sin Actividad
-                    ${inactive.length > 0 ? `<span style="background:${countInact > 0 ? '#ef4444' : '#f59e0b'};color:#fff;border-radius:10px;padding:1px 7px;font-size:0.75rem;margin-left:6px;">${inactive.length}</span>` : ''}
+                    Reclamos sin Actividad <span id="tab-badge-inact"></span>
                 </button>
             </div>
             <div id="tab-content-vencimientos"></div>
@@ -41,9 +76,44 @@ export function renderAlertsSection(container) {
         </div>
     `;
 
-    renderVencimientos(container, events);
-    renderInactividad(container, inactive);
+    function applyFilterAndRender() {
+        const events = allEvents.filter(e => matchesClientFilter(clientNameForClaimId(e.reclamoId)));
+        const inactive = allInactive.filter(i => matchesClientFilter(clientNameForClaim(i)));
 
+        renderVencimientos(container, events);
+        renderInactividad(container, inactive);
+
+        // Badges de las pestañas
+        const countVenc = events.filter(e => e.estadoAlerta === 'Vencido' || e.estadoAlerta === 'Vence hoy').length;
+        const countInact = inactive.filter(i => i.nivelAlerta === 'Critico' || i.nivelAlerta === 'Sin eventos').length;
+        const badgeVenc = container.querySelector('#tab-badge-venc');
+        const badgeInact = container.querySelector('#tab-badge-inact');
+        badgeVenc.innerHTML = countVenc > 0
+            ? `<span style="background:#ef4444;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.75rem;margin-left:6px;">${countVenc}</span>` : '';
+        badgeInact.innerHTML = inactive.length > 0
+            ? `<span style="background:${countInact > 0 ? '#ef4444' : '#f59e0b'};color:#fff;border-radius:10px;padding:1px 7px;font-size:0.75rem;margin-left:6px;">${inactive.length}</span>` : '';
+
+        // Hint del filtro
+        const hint = container.querySelector('#alert-filter-hint');
+        hint.innerHTML = alertClientFilter.trim()
+            ? `Filtrando por <strong style="color:#f1f5f9;">"${esc(alertClientFilter.trim())}"</strong> — ${events.length} vencimiento(s) y ${inactive.length} reclamo(s) sin actividad.`
+            : '';
+    }
+
+    // Buscador de cliente
+    const searchInput = container.querySelector('#alert-client-search');
+    searchInput.addEventListener('input', () => {
+        alertClientFilter = searchInput.value;
+        applyFilterAndRender();
+    });
+    container.querySelector('#alert-clear-filter').addEventListener('click', () => {
+        alertClientFilter = '';
+        searchInput.value = '';
+        applyFilterAndRender();
+        searchInput.focus();
+    });
+
+    // Pestañas
     container.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const tab = btn.getAttribute('data-tab');
@@ -58,6 +128,8 @@ export function renderAlertsSection(container) {
             });
         });
     });
+
+    applyFilterAndRender();
 }
 
 // ──────────────────────────────────────────────
