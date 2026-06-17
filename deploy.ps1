@@ -25,16 +25,11 @@ Write-Host ""
 
 $projectRoot = $PSScriptRoot
 
-# Auto-actualizar versión de caché en index.html
-$indexPath = Join-Path $projectRoot "index.html"
-if (Test-Path $indexPath) {
-    $versionTag = "v=" + (Get-Date -Format "yyyyMMddHHmm")
-    $indexContent = Get-Content $indexPath -Raw
-    $indexContent = $indexContent -replace '\?v=[^"'']+', "?$versionTag"
-    Set-Content -Path $indexPath -Value $indexContent -NoNewline
-    Write-Host "  Version cache actualizada: $versionTag" -ForegroundColor Yellow
-    Write-Host ""
-}
+# NOTA: El cache-busting con ?v= se eliminó a propósito.
+# Agregar ?v= al <script src="src/app.js"> hacía que app.js se cargara
+# DOS veces (con y sin query, porque los módulos internos importan
+# '../app.js' sin query), creando dos instancias de la app y duplicando
+# los listeners. Ahora la caché la gestiona .htaccess (no-cache + revalidate).
 
 # Verificar si hay cambios para commitear
 $gitStatus = git status --porcelain 2>&1
