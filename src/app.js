@@ -409,15 +409,15 @@ function showLoginScreen() {
         const result = await login(usuario, clave);
 
         if (result.success) {
-            await startApp(true);
+            await startApp();
         } else {
             alertDiv.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
         }
     });
 }
 
-/** Inicia la app. freshLogin=true fuerza la página de inicio ignorando un hash viejo. */
-async function startApp(freshLogin = false) {
+/** Inicia la app (tras login o al restaurar sesión). Siempre abre en la página de inicio. */
+async function startApp() {
     const sidebar = document.getElementById('sidebar');
     const topbar = document.getElementById('topbar');
     if (sidebar) sidebar.style.display = '';
@@ -468,9 +468,9 @@ async function startApp(freshLogin = false) {
         }
     }, 60 * 1000);
 
-    // En login nuevo, ir a la página de inicio (Alertas) ignorando un hash viejo.
-    // Al recargar con sesión activa, respetar la sección que esté en el hash.
-    const section = freshLogin ? defaultHomeSection() : getCurrentSection();
+    // Al ingresar al sistema (login o restaurar sesión) siempre abrir en la
+    // página de inicio (Alertas), ignorando un #seccion viejo en la URL.
+    const section = defaultHomeSection();
     window.location.hash = `#${section}`;
     navigateTo(section);
 }
