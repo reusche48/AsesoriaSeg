@@ -93,14 +93,18 @@ const SIDEBAR_ORDER = [
     'actividad',
 ];
 
-function getCurrentSection() {
-    const hash = window.location.hash.replace('#', '');
-    if (routes[hash] && hasAccess(hash)) return hash;
-    // Página de inicio por defecto: Alertas (para todos los usuarios con acceso)
+/** Página de inicio por defecto: Alertas (para todos los usuarios con acceso). */
+function defaultHomeSection() {
     if (hasAccess('alertas')) return 'alertas';
     if (hasAccess('clientes')) return 'clientes';
     const allowed = getAllowedScreens().filter(k => k !== 'dashboard');
     return allowed.length > 0 ? allowed[0] : 'clientes';
+}
+
+function getCurrentSection() {
+    const hash = window.location.hash.replace('#', '');
+    if (routes[hash] && hasAccess(hash)) return hash;
+    return defaultHomeSection();
 }
 
 function updateNavActive(section) {
@@ -405,15 +409,15 @@ function showLoginScreen() {
         const result = await login(usuario, clave);
 
         if (result.success) {
-            await startApp();
+            await startApp(true);
         } else {
             alertDiv.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
         }
     });
 }
 
-/** Inicia la app después del login */
-async function startApp() {
+/** Inicia la app. freshLogin=true fuerza la página de inicio ignorando un hash viejo. */
+async function startApp(freshLogin = false) {
     const sidebar = document.getElementById('sidebar');
     const topbar = document.getElementById('topbar');
     if (sidebar) sidebar.style.display = '';
@@ -464,7 +468,9 @@ async function startApp() {
         }
     }, 60 * 1000);
 
-    const section = getCurrentSection();
+    // En login nuevo, ir a la página de inicio (Alertas) ignorando un hash viejo.
+    // Al recargar con sesión activa, respetar la sección que esté en el hash.
+    const section = freshLogin ? defaultHomeSection() : getCurrentSection();
     window.location.hash = `#${section}`;
     navigateTo(section);
 }
