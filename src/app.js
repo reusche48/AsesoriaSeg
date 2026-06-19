@@ -96,6 +96,8 @@ const SIDEBAR_ORDER = [
 function getCurrentSection() {
     const hash = window.location.hash.replace('#', '');
     if (routes[hash] && hasAccess(hash)) return hash;
+    // Página de inicio por defecto: Alertas (para todos los usuarios con acceso)
+    if (hasAccess('alertas')) return 'alertas';
     if (hasAccess('clientes')) return 'clientes';
     const allowed = getAllowedScreens().filter(k => k !== 'dashboard');
     return allowed.length > 0 ? allowed[0] : 'clientes';
