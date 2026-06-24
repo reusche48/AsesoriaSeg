@@ -13,7 +13,7 @@ export function esc(str) {
 /** Formatea una fecha ISO a formato legible en español */
 export function formatDate(str) {
     if (!str) return '-';
-    const d = new Date(str);
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(str) ? new Date(str + 'T00:00:00') : new Date(str);
     if (isNaN(d)) return str;
     return d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
