@@ -6,6 +6,7 @@ import { isAdmin } from '../auth.js';
 import { openFormModal, closeFormModal, showModalFieldErrors, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
 import { confirmarEliminacion, handleFileUpload, exportToExcel } from '../utils.js';
+import { getActiveClientId } from '../state/clientContext.js';
 
 let selectedClientId = null;
 let selectedDesde = null;
@@ -54,6 +55,13 @@ export function renderAdvanceSection(container) {
         container.querySelector('#adv-filter-hasta').value = '';
         refreshList(container);
     });
+
+    // Pre-seleccionar el cliente activo global
+    const active = getActiveClientId();
+    if (active && clients.some(c => c.id === active)) {
+        selectedClientId = active;
+        container.querySelector('#adv-filter-cliente').value = active;
+    }
     refreshList(container);
 }
 

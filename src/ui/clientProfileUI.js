@@ -9,6 +9,7 @@ import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { coverageRepository } from '../repositories/coverageRepository.js';
 import { advanceRepository } from '../repositories/advanceRepository.js';
 import { openFileViewer } from '../app.js';
+import { getActiveClient, setActiveClient } from '../state/clientContext.js';
 
 /**
  * Módulo UI — Ficha completa del cliente.
@@ -33,6 +34,14 @@ export function renderClientProfileSection(container) {
     `;
 
     setupSearch(container);
+
+    // Si hay cliente activo global, precargar su ficha sin exigir nueva búsqueda
+    const active = getActiveClient();
+    if (active) {
+        container.querySelector('#profile-search').value = `${active.nombreCompleto} ${active.apellidosCompletos} (${active.dni})`;
+        showSectionSelector(container, active.id);
+        renderProfile(container, active.id, null); // muestra el resumen completo de inmediato
+    }
 }
 
 function setupSearch(container) {
@@ -66,6 +75,7 @@ function setupSearch(container) {
                 searchInput.value = item.textContent;
                 resultsDiv.innerHTML = '';
                 resultsDiv.classList.remove('open');
+                setActiveClient(clientId);
                 showSectionSelector(container, clientId);
             });
         });

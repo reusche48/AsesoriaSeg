@@ -21,6 +21,8 @@ import { renderAdvanceSection } from './ui/advanceUI.js';
 import { renderAdvanceQuerySection } from './ui/advanceQueryUI.js';
 import { renderClientProfileSection } from './ui/clientProfileUI.js';
 import { renderUninsuredCardsSection } from './ui/uninsuredCardsUI.js';
+import { mountClientContextBar } from './ui/clientContextBar.js';
+import { clearActiveClient } from './state/clientContext.js';
 
 /** Mapa de secciones: hash → función de renderizado. */
 const routes = {
@@ -165,6 +167,7 @@ function buildNavigation() {
     }
 
     document.getElementById('logout-btn')?.addEventListener('click', () => {
+        clearActiveClient();
         logout();
         showLoginScreen();
     });
@@ -451,6 +454,7 @@ async function startApp() {
 
     await initStorage();
     buildNavigation();
+    mountClientContextBar();
 
     // Setup modal close
     const modalCloseBtn = document.getElementById('modal-close-btn');
@@ -485,6 +489,7 @@ async function startApp() {
     // Verificar expiración de sesión cada minuto
     setInterval(() => {
         if (isSessionExpired()) {
+            clearActiveClient();
             logout();
             alert('Su sesión ha expirado. Por favor inicie sesión nuevamente.');
             showLoginScreen();

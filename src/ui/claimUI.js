@@ -11,6 +11,7 @@ import { openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { initStorage, uploadFile } from '../storage.js';
 import { confirmarEliminacion, handleFileUpload } from '../utils.js';
+import { getActiveClientId } from '../state/clientContext.js';
 
 let selectedDetailEvidenceDataUrl = null;
 
@@ -18,7 +19,8 @@ export function renderClaimSection(container) {
     selectedDetailEvidenceDataUrl = null;
 
     const clients = clientRepository.getAll();
-    const preselectClientId = sessionStorage.getItem('reclamos_preselect_client');
+    // Prioridad: navegación explícita (sessionStorage) > cliente activo global
+    const preselectClientId = sessionStorage.getItem('reclamos_preselect_client') || getActiveClientId() || null;
     sessionStorage.removeItem('reclamos_preselect_client');
 
     container.innerHTML = `

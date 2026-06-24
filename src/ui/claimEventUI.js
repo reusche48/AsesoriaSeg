@@ -8,6 +8,7 @@ import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
 import { handleFileUpload, exportToExcel } from '../utils.js';
+import { getActiveClientId } from '../state/clientContext.js';
 
 let selectedEventEvidenceDataUrl = null;
 let eventEvidenceUploading = false;
@@ -84,8 +85,27 @@ export function renderClaimEventSection(container) {
         }
         pendingPreselectClaimId = null;
     } else {
-        showLatestEvents(container);
+        // Si hay cliente activo global, mostrar los eventos de sus reclamos
+        const activeClientId = getActiveClientId();
+        if (activeClientId) {
+            showEventsForClient(container, activeClientId);
+        } else {
+            showLatestEvents(container);
+        }
     }
+}
+
+/** Muestra los eventos de todos los reclamos de un cliente. */
+function showEventsForClient(container, clientId) {
+    const incidentIds = new Set(
+        incidentRepository.getAll().filter(i => i.clienteId === clientId).map(i => i.id)
+    );
+    const claimIds = new Set(
+        claimRepository.getAll().filter(c => incidentIds.has(c.siniestroId)).map(c => c.id)
+    );
+    let events = claimEventRepository.getAll().filter(e => claimIds.has(e.reclamoId));
+    events = applyDateFilter(events.sort((a, b) => new Date(b.fecha) - new Date(a.fecha)));
+    renderEventTable(container, events, true);
 }
 
 function _refreshCurrentEventView(container) {

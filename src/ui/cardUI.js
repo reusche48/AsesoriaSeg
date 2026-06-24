@@ -7,6 +7,7 @@ import { auditLinkHtml, openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, showModalFieldErrors, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
 import { confirmarEliminacion, handleFileUpload } from '../utils.js';
+import { getActiveClientId } from '../state/clientContext.js';
 
 let selectedClientId = null;
 let evidenciaSeguroDataUrl = null;
@@ -34,6 +35,14 @@ export function renderCardSection(container) {
         selectedClientId = e.target.value || null;
         refreshList(container);
     });
+
+    // Pre-seleccionar el cliente activo global
+    const active = getActiveClientId();
+    if (active && clients.some(c => c.id === active)) {
+        selectedClientId = active;
+        container.querySelector('#card-filter-client').value = active;
+        refreshList(container);
+    }
 }
 
 function openCardForm(container, card) {

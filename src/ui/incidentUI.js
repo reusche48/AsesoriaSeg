@@ -6,6 +6,7 @@ import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
 import { confirmarEliminacion, handleFileUpload } from '../utils.js';
+import { getActiveClientId } from '../state/clientContext.js';
 
 /**
  * Módulo UI para registro de siniestros con denuncia policial.
@@ -13,6 +14,7 @@ import { confirmarEliminacion, handleFileUpload } from '../utils.js';
 
 let selectedFileDataUrl = null;
 let selectedFileName = null;
+let incidentClientId = null;
 
 /**
  * Renderiza la sección completa de siniestros.
@@ -21,10 +23,22 @@ export function renderIncidentSection(container) {
     selectedFileDataUrl = null;
     selectedFileName = null;
 
+    const clients = clientRepository.getAll();
+    const clientOpts = clients.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nombreCompleto)} ${escapeHtml(c.apellidosCompletos)} (${escapeHtml(c.dni)})</option>`).join('');
+
     container.innerHTML = `
         <div class="section">
-            <h2 class="section-title">Siniestros Registrados</h2>
-            <button type="button" class="btn btn-primary" id="incident-add-btn">➕ Agregar Siniestro</button>
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+                <h2 class="section-title" style="margin:0;">Siniestros Registrados</h2>
+                <button type="button" class="btn btn-primary" id="incident-add-btn">➕ Agregar Siniestro</button>
+            </div>
+            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-top:0.75rem;">
+                <select id="incident-filter-client" style="flex:1;min-width:220px;padding:0.5rem;border:1px solid #ccc;border-radius:4px;">
+                    <option value="">-- Todos los clientes --</option>
+                    ${clientOpts}
+                </select>
+                <button type="button" class="btn btn-secondary" id="incident-filter-clear" title="Limpiar filtro">✖ Limpiar</button>
+            </div>
             <div id="incident-list-content" class="mt-2"></div>
         </div>
 
@@ -42,6 +56,17 @@ export function renderIncidentSection(container) {
         const incidentId = section.getAttribute('data-incident-id');
         if (incidentId) openBankModal(container, incidentId);
     });
+
+    const filterSel = container.querySelector('#incident-filter-client');
+    filterSel.addEventListener('change', (e) => { incidentClientId = e.target.value || null; refreshIncidentList(container); });
+    container.querySelector('#incident-filter-clear').addEventListener('click', () => {
+        incidentClientId = null; filterSel.value = ''; refreshIncidentList(container);
+    });
+
+    // Pre-seleccionar el cliente activo global
+    const active = getActiveClientId();
+    incidentClientId = (active && clients.some(c => c.id === active)) ? active : null;
+    if (incidentClientId) filterSel.value = incidentClientId;
 
     refreshIncidentList(container);
 }
@@ -179,10 +204,13 @@ function openBankModal(container, incidentId) {
  */
 function refreshIncidentList(container) {
     const listContent = container.querySelector('#incident-list-content');
-    const incidents = incidentRepository.getAll();
+    let incidents = incidentRepository.getAll();
+    if (incidentClientId) incidents = incidents.filter(i => i.clienteId === incidentClientId);
 
     if (incidents.length === 0) {
-        listContent.innerHTML = '<div class="empty-state">No hay siniestros registrados.</div>';
+        listContent.innerHTML = incidentClientId
+            ? '<div class="empty-state">Este cliente no tiene siniestros registrados.</div>'
+            : '<div class="empty-state">No hay siniestros registrados.</div>';
         return;
     }
 
