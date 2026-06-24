@@ -161,11 +161,13 @@ function renderProfile(container, clientId, sections) {
                 <div class="profile-field" style="grid-column:1/-1;"><span class="profile-label">Observaciones:</span> ${esc(client.observaciones || '-')}</div>
             </div>`;
 
-    // Fotos DNI
-    if (client.dniFrontal || client.dniPosterior) {
+    // Fotos DNI / Huella / Firma
+    if (client.dniFrontal || client.dniPosterior || client.huella || client.firma) {
         html += `<div class="profile-dni-photos no-print" style="margin-top:0.75rem;display:flex;gap:1rem;flex-wrap:wrap;">`;
         if (client.dniFrontal) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.dniFrontal)}">📄 DNI Frontal</button>`;
         if (client.dniPosterior) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.dniPosterior)}">📄 DNI Posterior</button>`;
+        if (client.huella) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.huella)}">🖐️ Huella</button>`;
+        if (client.firma) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.firma)}">✍️ Firma</button>`;
         html += `</div>`;
     }
     html += `</div>`;

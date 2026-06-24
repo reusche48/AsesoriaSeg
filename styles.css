@@ -1073,3 +1073,17 @@ body {
     .dashboard-cards { grid-template-columns: repeat(2, 1fr); }
     .app-container { padding: 0.75rem; }
 }
+
+/* Previsualización de huella/firma con damero para ver la transparencia del PNG */
+.huella-firma-preview {
+    background-color: #fff;
+    background-image:
+        linear-gradient(45deg, #d0d0d0 25%, transparent 25%),
+        linear-gradient(-45deg, #d0d0d0 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #d0d0d0 75%),
+        linear-gradient(-45deg, transparent 75%, #d0d0d0 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+    border-radius: 6px;
+}
+.huella-firma-preview img { background: transparent; }

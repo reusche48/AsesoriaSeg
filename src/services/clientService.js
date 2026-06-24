@@ -76,6 +76,8 @@ export function registerClient(clientData) {
         observaciones: clientData.observaciones || null,
         dniFrontal: clientData.dniFrontal || null,
         dniPosterior: clientData.dniPosterior || null,
+        huella: clientData.huella || null,
+        firma: clientData.firma || null,
     });
 
     return { success: true, client };
@@ -151,6 +153,8 @@ export function updateClient(clientId, clientData) {
         observaciones: clientData.observaciones || null,
         dniFrontal: clientData.dniFrontal !== undefined ? clientData.dniFrontal : (existing.dniFrontal || null),
         dniPosterior: clientData.dniPosterior !== undefined ? clientData.dniPosterior : (existing.dniPosterior || null),
+        huella: clientData.huella !== undefined ? clientData.huella : (existing.huella || null),
+        firma: clientData.firma !== undefined ? clientData.firma : (existing.firma || null),
     });
 
     return { success: true, client };

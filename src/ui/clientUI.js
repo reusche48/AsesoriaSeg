@@ -12,6 +12,8 @@ import { confirmarEliminacion } from '../utils.js';
 let editingClientId = null;
 let dniFrontalDataUrl = null;
 let dniPosteriorDataUrl = null;
+let huellaDataUrl = null;
+let firmaDataUrl = null;
 
 const SVG = {
     edit:    `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
@@ -76,6 +78,32 @@ function getClientFormHtml(client) {
             </div>
         </div>
         <div class="form-row">
+            <div class="form-group">
+                <label>Huella (PNG, fondo transparente)</label>
+                <div class="dni-upload-area" id="area-huella">
+                    <div class="dni-upload-preview huella-firma-preview" id="preview-huella"></div>
+                    <input type="file" id="gallery-huella" accept="image/png" style="display:none">
+                    <input type="file" id="camera-huella" accept="image/*" capture="environment" style="display:none">
+                    <div class="dni-upload-btns">
+                        <button type="button" class="dni-btn" id="btn-gallery-huella"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> Archivo PNG</button>
+                        <button type="button" class="dni-btn" id="btn-camera-huella"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Cámara</button>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Firma (PNG, fondo transparente)</label>
+                <div class="dni-upload-area" id="area-firma">
+                    <div class="dni-upload-preview huella-firma-preview" id="preview-firma"></div>
+                    <input type="file" id="gallery-firma" accept="image/png" style="display:none">
+                    <input type="file" id="camera-firma" accept="image/*" capture="environment" style="display:none">
+                    <div class="dni-upload-btns">
+                        <button type="button" class="dni-btn" id="btn-gallery-firma"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> Archivo PNG</button>
+                        <button type="button" class="dni-btn" id="btn-camera-firma"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Cámara</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="form-row">
             <div class="form-group" data-field="nombreCompleto">
                 <label>Nombre completo *</label>
                 <input type="text" name="nombreCompleto" value="${esc(c.nombreCompleto || '')}" required>
@@ -132,6 +160,8 @@ function openClientForm(container, client) {
     editingClientId = client ? client.id : null;
     dniFrontalDataUrl = client?.dniFrontal || null;
     dniPosteriorDataUrl = client?.dniPosterior || null;
+    huellaDataUrl = client?.huella || null;
+    firmaDataUrl = client?.firma || null;
 
     openFormModal({
         title: client ? 'Editar Cliente' : 'Registrar Cliente',
@@ -155,6 +185,8 @@ function openClientForm(container, client) {
                 observaciones: fd.get('observaciones') || '',
                 dniFrontal: dniFrontalDataUrl,
                 dniPosterior: dniPosteriorDataUrl,
+                huella: huellaDataUrl,
+                firma: firmaDataUrl,
             };
 
             let result;
@@ -204,6 +236,7 @@ function openClientForm(container, client) {
                             direccion: c.direccion || '', gpsLatitud: c.gpsLatitud || '',
                             gpsLongitud: c.gpsLongitud || '', observaciones: c.observaciones || '',
                             dniFrontal: c.dniFrontal || null, dniPosterior: c.dniPosterior || null,
+                            huella: c.huella || null, firma: c.firma || null,
                         };
                         data[field] = null;
                         updateClient(editingClientId, data);
@@ -218,6 +251,12 @@ function openClientForm(container, client) {
             setupDniUpload(overlay, 'dniPosterior', (url) => { dniPosteriorDataUrl = url; }, savePhotoAndClose('dniPosterior'));
             if (dniFrontalDataUrl) renderDniPreview(overlay.querySelector('#preview-dniFrontal'), dniFrontalDataUrl, () => { dniFrontalDataUrl = null; }, savePhotoAndClose('dniFrontal'));
             if (dniPosteriorDataUrl) renderDniPreview(overlay.querySelector('#preview-dniPosterior'), dniPosteriorDataUrl, () => { dniPosteriorDataUrl = null; }, savePhotoAndClose('dniPosterior'));
+
+            // Huella y firma (PNG transparente)
+            setupDniUpload(overlay, 'huella', (url) => { huellaDataUrl = url; }, savePhotoAndClose('huella'));
+            setupDniUpload(overlay, 'firma', (url) => { firmaDataUrl = url; }, savePhotoAndClose('firma'));
+            if (huellaDataUrl) renderDniPreview(overlay.querySelector('#preview-huella'), huellaDataUrl, () => { huellaDataUrl = null; }, savePhotoAndClose('huella'));
+            if (firmaDataUrl) renderDniPreview(overlay.querySelector('#preview-firma'), firmaDataUrl, () => { firmaDataUrl = null; }, savePhotoAndClose('firma'));
         },
     });
 }
@@ -350,6 +389,8 @@ function renderClientTable(mainContainer, tableContainer, clients) {
         const fotoBtns = [];
         if (c.dniFrontal) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniFrontal)}" title="Ver DNI Frontal">${SVG.file}</button>`);
         if (c.dniPosterior) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniPosterior)}" title="Ver DNI Posterior">${SVG.file}</button>`);
+        if (c.huella) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.huella)}" title="Ver Huella">🖐️</button>`);
+        if (c.firma) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.firma)}" title="Ver Firma">✍️</button>`);
         const fotoCell = fotoBtns.length > 0 ? `<div class="actions-wrap">${fotoBtns.join('')}</div>` : '-';
         const gpsLink = (c.gpsLatitud && c.gpsLongitud)
             ? `<a href="https://www.google.com/maps?q=${c.gpsLatitud},${c.gpsLongitud}" target="_blank" title="${esc(c.direccion || 'Ver en mapa')}" class="btn-icon" style="text-decoration:none;">${SVG.mapPin}</a>`
@@ -381,6 +422,8 @@ function renderClientTable(mainContainer, tableContainer, clients) {
         const fotoBtns = [];
         if (c.dniFrontal) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniFrontal)}" title="Ver DNI Frontal">${SVG.file}</button>`);
         if (c.dniPosterior) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniPosterior)}" title="Ver DNI Posterior">${SVG.file}</button>`);
+        if (c.huella) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.huella)}" title="Ver Huella">🖐️</button>`);
+        if (c.firma) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.firma)}" title="Ver Firma">✍️</button>`);
         const gpsLink = (c.gpsLatitud && c.gpsLongitud)
             ? `<a href="https://www.google.com/maps?q=${c.gpsLatitud},${c.gpsLongitud}" target="_blank" class="btn-icon" style="text-decoration:none;">${SVG.mapPin}</a>`
             : '';
