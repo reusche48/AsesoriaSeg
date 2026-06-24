@@ -355,6 +355,17 @@ function describeDeleted($row) {
     return $partes ? implode(' — ', $partes) : ('registro ' . ($row['id'] ?? ''));
 }
 
+/** Registra una eliminación (o intento denegado) en el log de auditoría. No rompe el flujo si falla. */
+function logEliminacion($pdo, $coleccion, $regId, $descripcion, $usuario, $equipo, $resultado) {
+    try {
+        $pdo->prepare("INSERT INTO auditoria_eliminaciones (id, coleccion, registro_id, descripcion, usuario, equipo, fecha, resultado) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+            ->execute([
+                generateUUID(), $coleccion, $regId, $descripcion,
+                $usuario, $equipo, date('Y-m-d H:i:s'), $resultado,
+            ]);
+    } catch (PDOException $e) { /* tabla/columna ausente: continuar sin romper */ }
+}
+
 // ============================================================
 // Autenticación por token (HMAC, sin estado)
 // ============================================================
@@ -625,19 +636,20 @@ if ($action === 'activity' && $method === 'GET') {
         } catch (PDOException $e) { /* ignorar */ }
     }
 
-    // Eliminaciones (desde el log de auditoría)
+    // Eliminaciones e intentos denegados (desde el log de auditoría)
     try {
-        $stmtDel = $pdo->prepare("SELECT coleccion, registro_id, descripcion, usuario, equipo, fecha FROM auditoria_eliminaciones WHERE fecha BETWEEN ? AND ?");
+        $stmtDel = $pdo->prepare("SELECT coleccion, registro_id, descripcion, usuario, equipo, fecha, resultado FROM auditoria_eliminaciones WHERE fecha BETWEEN ? AND ?");
         $stmtDel->execute([$fechaInicio, $fechaFinDb]);
         foreach ($stmtDel->fetchAll() as $row) {
+            $denegado = (($row['resultado'] ?? 'eliminado') === 'denegado');
             $results[] = [
                 'entidad' => $tablas[$row['coleccion']] ?? $row['coleccion'],
-                'accion' => 'Eliminación',
+                'accion' => $denegado ? 'Intento de eliminación' : 'Eliminación',
                 'usuario' => $row['usuario'],
                 'equipo' => $row['equipo'],
                 'fecha' => $row['fecha'],
                 'registroId' => $row['registro_id'],
-                'descripcion' => $row['descripcion'],
+                'descripcion' => $denegado ? ('🚫 DENEGADO — ' . $row['descripcion']) : $row['descripcion'],
             ];
         }
     } catch (PDOException $e) { /* tabla de auditoría aún no existe */ }
@@ -888,20 +900,32 @@ try {
                 exit;
             }
 
-            // Registrar la eliminación en auditoría ANTES de borrar (no debe romper el borrado)
+            $esAdmin = (($AUTH['rol'] ?? null) === 'Administrador');
+            $audit = getAuditInfo();
+            $usuarioAudit = $AUTH['usr'] ?? $audit['usuario']; // del token (confiable)
+
+            // Capturar la fila para la descripción de auditoría
+            $delRow = null;
             try {
                 $rowStmt = $pdo->prepare("SELECT * FROM $table WHERE id = ?");
                 $rowStmt->execute([$id]);
                 $delRow = $rowStmt->fetch();
-                if ($delRow) {
-                    $audit = getAuditInfo();
-                    $pdo->prepare("INSERT INTO auditoria_eliminaciones (id, coleccion, registro_id, descripcion, usuario, equipo, fecha) VALUES (?, ?, ?, ?, ?, ?, ?)")
-                        ->execute([
-                            generateUUID(), $table, $id, describeDeleted($delRow),
-                            $audit['usuario'], $audit['equipo'], date('Y-m-d H:i:s'),
-                        ]);
-                }
-            } catch (PDOException $e) { /* si la tabla de auditoría no existe o falla, continuar */ }
+            } catch (PDOException $e) { /* ignorar */ }
+
+            // Solo un administrador puede eliminar. Los demás: registrar intento y rechazar.
+            if (!$esAdmin) {
+                logEliminacion($pdo, $table, $id, $delRow ? describeDeleted($delRow) : null,
+                    $usuarioAudit, $audit['equipo'], 'denegado');
+                http_response_code(403);
+                echo json_encode(['error' => 'Solo un administrador puede eliminar registros. El intento quedó registrado.']);
+                exit;
+            }
+
+            // Administrador: registrar eliminación y borrar
+            if ($delRow) {
+                logEliminacion($pdo, $table, $id, describeDeleted($delRow),
+                    $usuarioAudit, $audit['equipo'], 'eliminado');
+            }
 
             if ($collection === 'cards') {
                 $pdo->prepare('DELETE FROM tarjetas_cuentas WHERE tarjeta_id = ?')->execute([$id]);

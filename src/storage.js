@@ -18,6 +18,11 @@ export function getCurrentUser() {
     return getSessionRaw()?.user?.usuario || null;
 }
 
+/** ¿El usuario actual es Administrador? (chequeo de UX; la seguridad la aplica el servidor) */
+export function isAdminUser() {
+    return getSessionRaw()?.user?.rolNombre === 'Administrador';
+}
+
 /** Obtiene el token de autenticación actual */
 function getToken() {
     return getSessionRaw()?.token || null;
@@ -263,10 +268,13 @@ export async function deleteEntity(key, id) {
             method: 'DELETE',
         });
         if (!res.ok) {
-            const err = await res.json();
+            const err = await res.json().catch(() => ({}));
             console.error(`Error eliminando en "${key}":`, err);
+            return { ok: false, status: res.status, error: err.error };
         }
+        return { ok: true, status: res.status };
     } catch (err) {
         console.error(`Error de red eliminando en "${key}":`, err);
+        return { ok: false, status: 0 };
     }
 }

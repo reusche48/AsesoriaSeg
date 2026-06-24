@@ -1,4 +1,4 @@
-import { getCollection, saveCollection, generateId, saveEntity, updateEntity, deleteEntity, getCurrentUser } from '../storage.js';
+import { getCollection, saveCollection, generateId, saveEntity, updateEntity, deleteEntity, getCurrentUser, isAdminUser } from '../storage.js';
 
 /**
  * Repositorio genérico base con operaciones CRUD.
@@ -66,20 +66,55 @@ export class BaseRepository {
         return items[index];
     }
 
-    /** Elimina una entidad. Actualiza caché + API. */
+    /** Elimina una entidad. Actualiza caché + API. Solo admin puede eliminar (el servidor lo exige). */
     delete(id) {
         const items = this.getAll();
         const index = items.findIndex(item => item.id === id);
         if (index === -1) {
             throw new Error(`Entidad con ID "${id}" no encontrada en "${this.collectionKey}".`);
         }
-        items.splice(index, 1);
-        saveCollection(this.collectionKey, items);
-        // Persistir en MySQL (async) — notifica si falla
-        deleteEntity(this.collectionKey, id).catch(err => {
-            console.error(`[Repo] Error eliminando en "${this.collectionKey}":`, err);
+        const admin = isAdminUser();
+        const removed = items[index];
+
+        // Solo el admin remueve del caché de inmediato; el no-admin verá el item intacto
+        if (admin) {
+            items.splice(index, 1);
+            saveCollection(this.collectionKey, items);
+        }
+
+        // El servidor aplica la regla y registra el intento (eliminado / denegado)
+        deleteEntity(this.collectionKey, id).then(res => {
+            if (res && res.ok) return;
+            if (res && res.status === 403) {
+                // No-admin: eliminación denegada (ya quedó registrada en el log)
+                this._notifyDeleteDenied();
+            } else {
+                // Error real: si removimos optimistamente, revertir
+                if (admin) {
+                    const cur = this.getAll();
+                    if (!cur.some(i => i.id === id)) { cur.splice(index, 0, removed); saveCollection(this.collectionKey, cur); }
+                }
+                this._notifyWriteError('eliminar');
+            }
+        }).catch(() => {
+            if (admin) {
+                const cur = this.getAll();
+                if (!cur.some(i => i.id === id)) { cur.splice(index, 0, removed); saveCollection(this.collectionKey, cur); }
+            }
             this._notifyWriteError('eliminar');
         });
+    }
+
+    /** Muestra un toast cuando un no-admin intenta eliminar (denegado + registrado) */
+    _notifyDeleteDenied() {
+        const existing = document.getElementById('write-error-toast');
+        if (existing) existing.remove();
+        const toast = document.createElement('div');
+        toast.id = 'write-error-toast';
+        toast.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:#b45309;color:#fff;padding:0.75rem 1rem;border-radius:6px;z-index:99999;font-size:0.9rem;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:340px;';
+        toast.textContent = '🚫 Solo un administrador puede eliminar. Tu intento quedó registrado en el log.';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 6000);
     }
 
     /** Muestra un toast de error si una escritura a la API falla */
