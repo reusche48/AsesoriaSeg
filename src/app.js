@@ -196,9 +196,26 @@ async function navigateTo(section) {
 }
 
 /**
- * Abre el modal de visualización de archivos.
+ * Construye un nombre de archivo para descargar.
+ * Si se pasa una base (ej. "DNI_frontal_12345678") se le agrega la extensión real.
  */
-export function openFileViewer(dataUrl, format) {
+function buildDownloadName(dataUrl, baseName) {
+    const clean = String(dataUrl).split('?')[0].split('#')[0];
+    const ext = (clean.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+    if (baseName) {
+        return ext && !baseName.toLowerCase().endsWith('.' + ext) ? `${baseName}.${ext}` : baseName;
+    }
+    const seg = clean.substring(clean.lastIndexOf('/') + 1);
+    return seg || 'archivo';
+}
+
+/**
+ * Abre el modal de visualización de archivos, con botón de descarga.
+ * @param {string} dataUrl - URL del archivo (uploads/...) o data URL
+ * @param {string} [format] - 'PDF' u otro (opcional)
+ * @param {string} [filename] - Nombre descriptivo para la descarga (opcional)
+ */
+export function openFileViewer(dataUrl, format, filename) {
     const modal = document.getElementById('file-viewer-modal');
     const body = document.getElementById('modal-body');
     if (!modal || !body) return;
@@ -206,11 +223,17 @@ export function openFileViewer(dataUrl, format) {
     const isPdf = fmt === 'PDF'
         || dataUrl.startsWith('data:application/pdf')
         || dataUrl.toLowerCase().endsWith('.pdf');
-    if (isPdf) {
-        body.innerHTML = `<iframe src="${dataUrl}"></iframe>`;
-    } else {
-        body.innerHTML = `<img src="${dataUrl}" alt="Archivo">`;
-    }
+    const media = isPdf
+        ? `<iframe src="${dataUrl}"></iframe>`
+        : `<img src="${dataUrl}" alt="Archivo">`;
+    const dlName = buildDownloadName(dataUrl, filename);
+    body.innerHTML = `
+        <div class="file-viewer-toolbar" style="display:flex;justify-content:flex-end;margin-bottom:0.5rem;">
+            <a href="${dataUrl}" download="${escapeHtmlGlobal(dlName)}" class="btn btn-primary"
+               style="text-decoration:none;font-size:0.85rem;padding:0.35rem 0.9rem;">⬇️ Descargar</a>
+        </div>
+        ${media}
+    `;
     modal.style.display = 'flex';
 }
 
@@ -503,6 +526,6 @@ async function init() {
     }
 }
 
-window.__viewFile = (dataUrl, format) => openFileViewer(dataUrl, format);
+window.__viewFile = (dataUrl, format, filename) => openFileViewer(dataUrl, format, filename);
 window.__getCollection = getCollection;
 document.addEventListener('DOMContentLoaded', init);

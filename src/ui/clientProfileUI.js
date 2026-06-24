@@ -164,10 +164,10 @@ function renderProfile(container, clientId, sections) {
     // Fotos DNI / Huella / Firma
     if (client.dniFrontal || client.dniPosterior || client.huella || client.firma) {
         html += `<div class="profile-dni-photos no-print" style="margin-top:0.75rem;display:flex;gap:1rem;flex-wrap:wrap;">`;
-        if (client.dniFrontal) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.dniFrontal)}">📄 DNI Frontal</button>`;
-        if (client.dniPosterior) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.dniPosterior)}">📄 DNI Posterior</button>`;
-        if (client.huella) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.huella)}">🖐️ Huella</button>`;
-        if (client.firma) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.firma)}">✍️ Firma</button>`;
+        if (client.dniFrontal) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.dniFrontal)}" data-filename="DNI_frontal_${esc(client.dni || '')}">📄 DNI Frontal</button>`;
+        if (client.dniPosterior) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.dniPosterior)}" data-filename="DNI_posterior_${esc(client.dni || '')}">📄 DNI Posterior</button>`;
+        if (client.huella) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.huella)}" data-filename="huella_${esc(client.dni || '')}">🖐️ Huella</button>`;
+        if (client.firma) html += `<button type="button" class="btn btn-secondary view-file-btn" data-file="${esc(client.firma)}" data-filename="firma_${esc(client.dni || '')}">✍️ Firma</button>`;
         html += `</div>`;
     }
     html += `</div>`;
@@ -303,7 +303,7 @@ function renderProfile(container, clientId, sections) {
     content.querySelectorAll('.view-file-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const file = btn.getAttribute('data-file');
-            if (file) openFileViewer(file);
+            if (file) openFileViewer(file, '', btn.getAttribute('data-filename') || null);
         });
     });
 

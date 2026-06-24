@@ -387,10 +387,10 @@ function truncCell(val, n = 12) {
 function renderClientTable(mainContainer, tableContainer, clients) {
     const rows = clients.map((c, idx) => {
         const fotoBtns = [];
-        if (c.dniFrontal) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniFrontal)}" title="Ver DNI Frontal">${SVG.file}</button>`);
-        if (c.dniPosterior) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniPosterior)}" title="Ver DNI Posterior">${SVG.file}</button>`);
-        if (c.huella) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.huella)}" title="Ver Huella">🖐️</button>`);
-        if (c.firma) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.firma)}" title="Ver Firma">✍️</button>`);
+        if (c.dniFrontal) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniFrontal)}" data-filename="DNI_frontal_${esc(c.dni || '')}" title="Ver DNI Frontal">${SVG.file}</button>`);
+        if (c.dniPosterior) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniPosterior)}" data-filename="DNI_posterior_${esc(c.dni || '')}" title="Ver DNI Posterior">${SVG.file}</button>`);
+        if (c.huella) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.huella)}" data-filename="huella_${esc(c.dni || '')}" title="Ver Huella">🖐️</button>`);
+        if (c.firma) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.firma)}" data-filename="firma_${esc(c.dni || '')}" title="Ver Firma">✍️</button>`);
         const fotoCell = fotoBtns.length > 0 ? `<div class="actions-wrap">${fotoBtns.join('')}</div>` : '-';
         const gpsLink = (c.gpsLatitud && c.gpsLongitud)
             ? `<a href="https://www.google.com/maps?q=${c.gpsLatitud},${c.gpsLongitud}" target="_blank" title="${esc(c.direccion || 'Ver en mapa')}" class="btn-icon" style="text-decoration:none;">${SVG.mapPin}</a>`
@@ -420,10 +420,10 @@ function renderClientTable(mainContainer, tableContainer, clients) {
 
     const cards = clients.map((c) => {
         const fotoBtns = [];
-        if (c.dniFrontal) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniFrontal)}" title="Ver DNI Frontal">${SVG.file}</button>`);
-        if (c.dniPosterior) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniPosterior)}" title="Ver DNI Posterior">${SVG.file}</button>`);
-        if (c.huella) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.huella)}" title="Ver Huella">🖐️</button>`);
-        if (c.firma) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.firma)}" title="Ver Firma">✍️</button>`);
+        if (c.dniFrontal) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniFrontal)}" data-filename="DNI_frontal_${esc(c.dni || '')}" title="Ver DNI Frontal">${SVG.file}</button>`);
+        if (c.dniPosterior) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.dniPosterior)}" data-filename="DNI_posterior_${esc(c.dni || '')}" title="Ver DNI Posterior">${SVG.file}</button>`);
+        if (c.huella) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.huella)}" data-filename="huella_${esc(c.dni || '')}" title="Ver Huella">🖐️</button>`);
+        if (c.firma) fotoBtns.push(`<button type="button" class="btn-icon view-photo-btn" data-photo="${esc(c.firma)}" data-filename="firma_${esc(c.dni || '')}" title="Ver Firma">✍️</button>`);
         const gpsLink = (c.gpsLatitud && c.gpsLongitud)
             ? `<a href="https://www.google.com/maps?q=${c.gpsLatitud},${c.gpsLongitud}" target="_blank" class="btn-icon" style="text-decoration:none;">${SVG.mapPin}</a>`
             : '';
@@ -460,7 +460,7 @@ function renderClientTable(mainContainer, tableContainer, clients) {
     `;
 
     tableContainer.querySelectorAll('.view-photo-btn').forEach(btn => {
-        btn.addEventListener('click', () => { const p = btn.getAttribute('data-photo'); if (p) openFileViewer(p); });
+        btn.addEventListener('click', () => { const p = btn.getAttribute('data-photo'); if (p) openFileViewer(p, '', btn.getAttribute('data-filename') || null); });
     });
     tableContainer.querySelectorAll('.edit-client-btn').forEach(btn => {
         btn.addEventListener('click', () => {
