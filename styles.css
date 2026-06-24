@@ -620,7 +620,7 @@ body {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
     background: rgba(0,0,0,0.7);
-    z-index: 1000;
+    z-index: 1200; /* por encima del modal de formulario (1100) para verse al abrir desde Editar */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -648,7 +648,20 @@ body {
     line-height: 1;
 }
 .modal-close:hover { color: #f87171; }
-.modal-content img { max-width: 100%; max-height: 80vh; }
+.modal-content img {
+    max-width: 100%;
+    max-height: 80vh;
+    /* Fondo claro en damero para ver imágenes PNG transparentes (huella/firma) */
+    background-color: #fff;
+    background-image:
+        linear-gradient(45deg, #d0d0d0 25%, transparent 25%),
+        linear-gradient(-45deg, #d0d0d0 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #d0d0d0 75%),
+        linear-gradient(-45deg, transparent 75%, #d0d0d0 75%);
+    background-size: 18px 18px;
+    background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+    border-radius: 6px;
+}
 .modal-content iframe { width: 80vw; height: 80vh; border: none; }
 
 /* === Autocomplete === */
