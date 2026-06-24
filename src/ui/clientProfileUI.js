@@ -10,6 +10,7 @@ import { coverageRepository } from '../repositories/coverageRepository.js';
 import { advanceRepository } from '../repositories/advanceRepository.js';
 import { openFileViewer } from '../app.js';
 import { getActiveClient, setActiveClient } from '../state/clientContext.js';
+import { hasAccess } from '../auth.js';
 
 /**
  * Módulo UI — Ficha completa del cliente.
@@ -307,7 +308,28 @@ function renderProfile(container, clientId, sections) {
         </div>
     `;
 
-    content.innerHTML = html;
+    // Barra de atajos: ir a cada sección de este cliente (solo las accesibles)
+    const navSections = [
+        { key: 'reclamos',   label: '📑 Reclamos' },
+        { key: 'eventos',    label: '📅 Eventos' },
+        { key: 'tarjetas',   label: '💳 Tarjetas' },
+        { key: 'siniestros', label: '⚠️ Siniestros' },
+        { key: 'adelantos',  label: '💵 Adelantos' },
+    ].filter(s => hasAccess(s.key));
+    const navHtml = navSections.length ? `
+        <div class="profile-quick-nav no-print" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem;">
+            <span style="color:#9ca3af;font-size:0.85rem;">Ir a este cliente en:</span>
+            ${navSections.map(s => `<button type="button" class="btn btn-secondary profile-nav-btn" data-section="${s.key}">${s.label}</button>`).join('')}
+        </div>` : '';
+
+    content.innerHTML = navHtml + html;
+
+    content.querySelectorAll('.profile-nav-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            setActiveClient(clientId);
+            window.location.hash = '#' + btn.getAttribute('data-section');
+        });
+    });
 
     // Event listeners
     content.querySelectorAll('.view-file-btn').forEach(btn => {
