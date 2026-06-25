@@ -133,9 +133,12 @@ function buildNavigation() {
     const session = getSession();
 
     function navLink(key) {
-        const badge = key === 'alertas'
-            ? `<span id="alerts-badge" style="display:none;background:#7c3aed;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.7rem;margin-left:auto;"></span>`
-            : '';
+        let badge = '';
+        if (key === 'alertas') {
+            badge = `<span id="alerts-badge" style="display:none;background:#7c3aed;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.7rem;margin-left:auto;"></span>`;
+        } else if (key === 'guia') {
+            badge = `<span id="guia-badge" style="display:none;background:#d97706;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.7rem;margin-left:auto;"></span>`;
+        }
         return `<a href="#${key}" class="nav-link" data-section="${key}">${NAV_LABELS[key] || key}${badge}</a>`;
     }
 
@@ -207,6 +210,7 @@ async function navigateTo(section) {
         container.innerHTML = '';
         renderFn(container);
         updateAlertsBadge();
+        updateGuiaBadge();
     }
 }
 
@@ -525,6 +529,19 @@ export function updateAlertsBadge() {
             const criticas = getClaimsWithoutActivity()
                 .filter(a => a.nivelAlerta === 'Critico' || a.nivelAlerta === 'Sin eventos').length;
             const total = vencidas + criticas;
+            badge.textContent = total;
+            badge.style.display = total > 0 ? 'inline' : 'none';
+        } catch (e) { /* ignorar si aún no hay datos */ }
+    }).catch(() => {});
+}
+
+/** Actualiza el badge de acciones pendientes de la Guía. */
+export function updateGuiaBadge() {
+    const badge = document.getElementById('guia-badge');
+    if (!badge) return;
+    import('./services/nextActionService.js').then(({ getAllPendingActions }) => {
+        try {
+            const total = getAllPendingActions();
             badge.textContent = total;
             badge.style.display = total > 0 ? 'inline' : 'none';
         } catch (e) { /* ignorar si aún no hay datos */ }
