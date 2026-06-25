@@ -68,6 +68,7 @@ $TABLES_WITH_AUDIT = [
     'clientes', 'bancos', 'seguros', 'coberturas', 'cuentas_bancarias',
     'tarjetas', 'siniestros', 'reclamos', 'detalle_reclamos',
     'eventos_reclamo', 'adelantos', 'usuarios', 'roles', 'permisos_rol',
+    'plantillas_pasos', 'pasos_reclamo',
 ];
 
 // Mapeo colecciones JS → tablas MySQL + columnas
@@ -198,6 +199,39 @@ $TABLE_MAP = [
             'tipoDias' => 'tipo_dias',
             'fechaVencimiento' => 'fecha_vencimiento',
             'eventoOrigenId' => 'evento_origen_id',
+            'stepId' => 'paso_id',
+        ]
+    ],
+    'stepTemplates' => [
+        'table' => 'plantillas_pasos',
+        'cols' => [
+            'id' => 'id',
+            'bancoId' => 'banco_id',
+            'orden' => 'orden',
+            'nombre' => 'nombre',
+            'descripcion' => 'descripcion',
+            'diasEspera' => 'dias_espera',
+            'tipoDias' => 'tipo_dias',
+            'requiereRespuesta' => 'requiere_respuesta',
+            'tipoPaso' => 'tipo_paso',
+            'activo' => 'activo',
+        ]
+    ],
+    'claimSteps' => [
+        'table' => 'pasos_reclamo',
+        'cols' => [
+            'id' => 'id',
+            'reclamoId' => 'reclamo_id',
+            'plantillaId' => 'plantilla_id',
+            'orden' => 'orden',
+            'nombre' => 'nombre',
+            'descripcion' => 'descripcion',
+            'diasEspera' => 'dias_espera',
+            'tipoDias' => 'tipo_dias',
+            'requiereRespuesta' => 'requiere_respuesta',
+            'tipoPaso' => 'tipo_paso',
+            'estado' => 'estado',
+            'fechaCompletado' => 'fecha_completado',
         ]
     ],
     'roles' => [

@@ -122,6 +122,8 @@ const SECTION_COLLECTIONS = {
     actividad:         [],
     usuarios:          [],
     tarjetasSinSeguro: ['clients', 'cards'],
+    plantillasPasos:   ['banks', 'stepTemplates'],
+    guia:              ['clients', 'cards', 'incidents', 'claims', 'claimEvents', 'stepTemplates', 'claimSteps', 'banks'],
 };
 
 /**
