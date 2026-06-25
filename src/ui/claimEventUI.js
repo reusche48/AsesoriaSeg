@@ -421,8 +421,11 @@ function exportEvents(container) {
         const claim = claimRepository.getById(ev.reclamoId);
         const info = claim ? buildClaimLabel(claim) : { clientLabel: '-', bankLabel: '-' };
         const fechaObj = new Date(ev.fecha);
+        const t = diasTranscurridos(ev.fecha);
         return {
             'Fecha': isNaN(fechaObj) ? ev.fecha : fechaObj.toLocaleDateString('es-PE') + ' ' + fechaObj.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
+            'Días transcurridos (naturales)': t ? t.naturales : '',
+            'Días transcurridos (laborables)': t ? t.laborables : '',
             'Cliente': info.clientLabel,
             'Banco': info.bankLabel,
             'Descripción': ev.descripcion || '',
@@ -457,6 +460,30 @@ function refreshEventList(container, claimId) {
     renderEventTable(container, events, false);
 }
 
+/**
+ * Días transcurridos desde la fecha del evento hasta hoy.
+ * @returns {{naturales:number, laborables:number}|null}
+ */
+function diasTranscurridos(fechaStr) {
+    if (!fechaStr) return null;
+    const ev = new Date(fechaStr);
+    if (isNaN(ev)) return null;
+    ev.setHours(0, 0, 0, 0);
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const naturales = Math.floor((hoy - ev) / 86400000);
+    if (naturales <= 0) return { naturales: Math.max(0, naturales), laborables: 0 };
+    // Contar días laborables (lunes a viernes) en el rango (evento, hoy]
+    let laborables = 0;
+    const d = new Date(ev);
+    for (let i = 0; i < naturales; i++) {
+        d.setDate(d.getDate() + 1);
+        const dow = d.getDay();
+        if (dow !== 0 && dow !== 6) laborables++;
+    }
+    return { naturales, laborables };
+}
+
 function renderEventTable(container, events, showClaimInfo) {
     const listContent = container.querySelector('#event-list-content');
     if (events.length === 0) {
@@ -484,10 +511,16 @@ function renderEventTable(container, events, showClaimInfo) {
             ? `<button type="button" class="btn-icon view-evidence-btn" title="Ver evidencia" data-file="${escapeHtml(ev.evidencia)}">📎</button>`
             : '-';
 
+        const t = diasTranscurridos(ev.fecha);
+        const transcurridoCell = t
+            ? `<span title="${t.naturales} días naturales / ${t.laborables} días laborables transcurridos">${t.naturales}/${t.laborables}</span>`
+            : '-';
+
         return `
             <tr>
                 ${claimCell}
                 <td>${escapeHtml(fechaStr)}</td>
+                <td style="white-space:nowrap;">${transcurridoCell}</td>
                 <td>${escapeHtml(ev.descripcion)}</td>
                 <td>${escapeHtml(ev.observacion || '')}</td>
                 <td>${evidenciaBtn}</td>
@@ -502,7 +535,7 @@ function renderEventTable(container, events, showClaimInfo) {
 
     listContent.innerHTML = `
         <table class="data-table">
-            <thead><tr>${headerExtra}<th>Fecha y Hora</th><th>Descripción</th><th>Observación</th><th>Evidencia</th><th>Registro</th><th>Acciones</th></tr></thead>
+            <thead><tr>${headerExtra}<th>Fecha y Hora</th><th title="Días naturales / días laborables transcurridos desde el evento hasta hoy">Transcurrido<br><span style="font-weight:normal;font-size:0.7rem;color:#9ca3af;">nat./lab.</span></th><th>Descripción</th><th>Observación</th><th>Evidencia</th><th>Registro</th><th>Acciones</th></tr></thead>
             <tbody>${rows}</tbody>
         </table>
     `;
