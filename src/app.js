@@ -24,6 +24,7 @@ import { renderUninsuredCardsSection } from './ui/uninsuredCardsUI.js';
 import { renderStepTemplateSection } from './ui/stepTemplateUI.js';
 import { renderGuiaSection } from './ui/guiaUI.js';
 import { renderPaymentSection } from './ui/paymentUI.js';
+import { renderVueltaSection } from './ui/vueltaUI.js';
 import { mountClientContextBar } from './ui/clientContextBar.js';
 import { clearActiveClient } from './state/clientContext.js';
 
@@ -50,6 +51,7 @@ const routes = {
     plantillasPasos: renderStepTemplateSection,
     guia: renderGuiaSection,
     pagos: renderPaymentSection,
+    vuelta: renderVueltaSection,
 };
 
 const _S = 'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
@@ -80,6 +82,7 @@ const NAV_LABELS = {
     plantillasPasos:   `${ico('<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>')} Pasos por Banco`,
     guia:              `${ico('<polygon points="3 11 22 2 13 21 11 13 3 11"/>')} Guía`,
     pagos:             `${ico('<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>')} Pagos Seguro`,
+    vuelta:            `${ico('<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>')} La Vuelta`,
 };
 
 /** Orden de items en el sidebar */
@@ -101,6 +104,7 @@ const SIDEBAR_ORDER = [
     'alertas',
     'plantillasPasos',
     'pagos',
+    'vuelta',
     'adelantos',
     'consultaAdelantos',
     'usuarios',

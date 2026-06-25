@@ -124,7 +124,8 @@ const SECTION_COLLECTIONS = {
     tarjetasSinSeguro: ['clients', 'cards'],
     plantillasPasos:   ['banks', 'stepTemplates'],
     pagos:             ['clients', 'cards', 'banks', 'payments'],
-    guia:              ['clients', 'cards', 'incidents', 'claims', 'claimEvents', 'stepTemplates', 'claimSteps', 'banks', 'payments'],
+    vuelta:            ['clients', 'cards', 'banks', 'payments', 'vueltas', 'vueltaEvidencias', 'blockingCodes'],
+    guia:              ['clients', 'cards', 'incidents', 'claims', 'claimEvents', 'stepTemplates', 'claimSteps', 'banks', 'payments', 'vueltas'],
 };
 
 /**

@@ -6,6 +6,7 @@ import { claimStepRepository } from '../repositories/claimStepRepository.js';
 import { getEventsWithDeadline } from './claimEventService.js';
 import { ensureClaimSteps } from './claimStepService.js';
 import { getPaymentStatusForClient } from './paymentService.js';
+import { getVueltaState } from './vueltaService.js';
 
 /**
  * Motor de "siguiente acción" (la secretaria): qué hacer ahora por cliente y banco.
@@ -22,13 +23,26 @@ export function getGeneralStepsForClient(clientId) {
     const conSeguro = cards.filter(c => c.seguroId && c.activo !== false && Number(c.activo) !== 0);
     const claims = claimsOfClient(clientId);
 
-    // Paso 3: estado real de pagos del seguro por banco
-    const pagosSt = getPaymentStatusForClient(clientId);
-    const pagosPend = pagosSt.filter(s => s.estado !== 'al_dia');
+    const vueltaState = getVueltaState(clientId);
+
+    // Paso 3: estado real de pagos del seguro por banco. Tras la vuelta cerrada ya no se exige.
     let pagoEstado, pagoDetalle;
-    if (pagosSt.length === 0) { pagoEstado = 'hecho'; pagoDetalle = 'Sin seguros que pagar'; }
-    else if (pagosPend.length === 0) { pagoEstado = 'hecho'; pagoDetalle = 'Todos los bancos al día'; }
-    else { pagoEstado = 'pendiente'; pagoDetalle = 'Falta pagar: ' + pagosPend.map(v => v.bancoNombre).join(', '); }
+    if (vueltaState === 'cerrada') {
+        pagoEstado = 'hecho'; pagoDetalle = 'Ya no se exige (vuelta cerrada)';
+    } else {
+        const pagosSt = getPaymentStatusForClient(clientId);
+        const pagosPend = pagosSt.filter(s => s.estado !== 'al_dia');
+        if (pagosSt.length === 0) { pagoEstado = 'hecho'; pagoDetalle = 'Sin seguros que pagar'; }
+        else if (pagosPend.length === 0) { pagoEstado = 'hecho'; pagoDetalle = 'Todos los bancos al día'; }
+        else { pagoEstado = 'pendiente'; pagoDetalle = 'Falta pagar: ' + pagosPend.map(v => v.bancoNombre).join(', '); }
+    }
+
+    // Paso 4: estado de la vuelta
+    const vueltaCfg = {
+        ninguna: { estado: 'pendiente', detalle: 'Aún no se inicia la vuelta' },
+        abierta: { estado: 'pendiente', detalle: 'Vuelta en curso — completar evidencias/códigos y cerrar' },
+        cerrada: { estado: 'hecho', detalle: 'Vuelta cerrada' },
+    }[vueltaState];
 
     return [
         { orden: 1, label: 'Registrar cliente', estado: 'hecho', detalle: '', hash: '#clientes' },
@@ -38,7 +52,7 @@ export function getGeneralStepsForClient(clientId) {
             detalle: `${conSeguro.length}/${cards.length} tarjeta(s) con seguro`, hash: '#tarjetas',
         },
         { orden: 3, label: 'Verificar pagos del seguro', estado: pagoEstado, detalle: pagoDetalle, hash: '#pagos' },
-        { orden: 4, label: 'La vuelta (evidencias por banco + códigos de bloqueo)', estado: 'proximamente', detalle: 'Disponible en la Etapa de la Vuelta', hash: null },
+        { orden: 4, label: 'La vuelta (evidencias por banco + códigos de bloqueo)', estado: vueltaCfg.estado, detalle: vueltaCfg.detalle, hash: '#vuelta' },
         {
             orden: 5, label: 'Iniciar reclamos por banco',
             estado: claims.length > 0 ? 'hecho' : 'pendiente',

@@ -69,6 +69,7 @@ $TABLES_WITH_AUDIT = [
     'tarjetas', 'siniestros', 'reclamos', 'detalle_reclamos',
     'eventos_reclamo', 'adelantos', 'usuarios', 'roles', 'permisos_rol',
     'plantillas_pasos', 'pasos_reclamo', 'pagos_seguro',
+    'vueltas', 'vuelta_evidencias', 'codigos_bloqueo',
 ];
 
 // Mapeo colecciones JS → tablas MySQL + columnas
@@ -246,6 +247,43 @@ $TABLE_MAP = [
             'moneda' => 'moneda',
             'evidencia' => 'evidencia',
             'observaciones' => 'observaciones',
+        ]
+    ],
+    'vueltas' => [
+        'table' => 'vueltas',
+        'cols' => [
+            'id' => 'id',
+            'clienteId' => 'cliente_id',
+            'fecha' => 'fecha',
+            'estado' => 'estado',
+            'fechaCierre' => 'fecha_cierre',
+            'denunciaEvidencia' => 'denuncia_evidencia',
+            'denunciaFecha' => 'denuncia_fecha',
+            'observaciones' => 'observaciones',
+        ]
+    ],
+    'vueltaEvidencias' => [
+        'table' => 'vuelta_evidencias',
+        'cols' => [
+            'id' => 'id',
+            'vueltaId' => 'vuelta_id',
+            'bancoId' => 'banco_id',
+            'tipo' => 'tipo',
+            'evidencia' => 'evidencia',
+            'fecha' => 'fecha',
+            'hora' => 'hora',
+            'concepto' => 'concepto',
+        ]
+    ],
+    'blockingCodes' => [
+        'table' => 'codigos_bloqueo',
+        'cols' => [
+            'id' => 'id',
+            'vueltaId' => 'vuelta_id',
+            'bancoId' => 'banco_id',
+            'codigo' => 'codigo',
+            'tarjetaIds' => 'tarjeta_ids',
+            'observacion' => 'observacion',
         ]
     ],
     'roles' => [

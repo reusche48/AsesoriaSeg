@@ -75,6 +75,24 @@ export function isPagosAlDia(clientId) {
     return st.every(s => s.estado === 'al_dia');
 }
 
+/**
+ * Para iniciar la vuelta: cada banco con seguro debe tener un pago dentro de
+ * los últimos `days` días (regla: el seguro debe estar fresco).
+ * @returns {{ok:boolean, faltan:string[]}}
+ */
+export function paymentsRecentForVuelta(clientId, days = 30) {
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    const faltan = [];
+    for (const banco of bancosConSeguro(clientId)) {
+        const ultimo = paymentRepository.findByClientAndBank(clientId, banco.id)
+            .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0];
+        if (!ultimo) { faltan.push(banco.nombre); continue; }
+        const d = parseFecha(ultimo.fecha); d.setHours(0, 0, 0, 0);
+        if (Math.floor((hoy - d) / 86400000) > days) faltan.push(banco.nombre);
+    }
+    return { ok: faltan.length === 0, faltan };
+}
+
 /** Registrar un pago. */
 export function registerPayment(data) {
     const errors = [];
