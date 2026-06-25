@@ -68,7 +68,7 @@ $TABLES_WITH_AUDIT = [
     'clientes', 'bancos', 'seguros', 'coberturas', 'cuentas_bancarias',
     'tarjetas', 'siniestros', 'reclamos', 'detalle_reclamos',
     'eventos_reclamo', 'adelantos', 'usuarios', 'roles', 'permisos_rol',
-    'plantillas_pasos', 'pasos_reclamo',
+    'plantillas_pasos', 'pasos_reclamo', 'pagos_seguro',
 ];
 
 // Mapeo colecciones JS → tablas MySQL + columnas
@@ -232,6 +232,20 @@ $TABLE_MAP = [
             'tipoPaso' => 'tipo_paso',
             'estado' => 'estado',
             'fechaCompletado' => 'fecha_completado',
+        ]
+    ],
+    'payments' => [
+        'table' => 'pagos_seguro',
+        'cols' => [
+            'id' => 'id',
+            'clienteId' => 'cliente_id',
+            'bancoId' => 'banco_id',
+            'fecha' => 'fecha',
+            'periodicidad' => 'periodicidad',
+            'monto' => 'monto',
+            'moneda' => 'moneda',
+            'evidencia' => 'evidencia',
+            'observaciones' => 'observaciones',
         ]
     ],
     'roles' => [

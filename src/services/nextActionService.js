@@ -5,6 +5,7 @@ import { bankRepository } from '../repositories/bankRepository.js';
 import { claimStepRepository } from '../repositories/claimStepRepository.js';
 import { getEventsWithDeadline } from './claimEventService.js';
 import { ensureClaimSteps } from './claimStepService.js';
+import { getPaymentStatusForClient } from './paymentService.js';
 
 /**
  * Motor de "siguiente acción" (la secretaria): qué hacer ahora por cliente y banco.
@@ -20,6 +21,15 @@ export function getGeneralStepsForClient(clientId) {
     const cards = cardRepository.findByClientId(clientId);
     const conSeguro = cards.filter(c => c.seguroId && c.activo !== false && Number(c.activo) !== 0);
     const claims = claimsOfClient(clientId);
+
+    // Paso 3: estado real de pagos del seguro por banco
+    const pagosSt = getPaymentStatusForClient(clientId);
+    const pagosPend = pagosSt.filter(s => s.estado !== 'al_dia');
+    let pagoEstado, pagoDetalle;
+    if (pagosSt.length === 0) { pagoEstado = 'hecho'; pagoDetalle = 'Sin seguros que pagar'; }
+    else if (pagosPend.length === 0) { pagoEstado = 'hecho'; pagoDetalle = 'Todos los bancos al día'; }
+    else { pagoEstado = 'pendiente'; pagoDetalle = 'Falta pagar: ' + pagosPend.map(v => v.bancoNombre).join(', '); }
+
     return [
         { orden: 1, label: 'Registrar cliente', estado: 'hecho', detalle: '', hash: '#clientes' },
         {
@@ -27,7 +37,7 @@ export function getGeneralStepsForClient(clientId) {
             estado: conSeguro.length > 0 ? 'hecho' : 'pendiente',
             detalle: `${conSeguro.length}/${cards.length} tarjeta(s) con seguro`, hash: '#tarjetas',
         },
-        { orden: 3, label: 'Verificar pagos del seguro', estado: 'proximamente', detalle: 'Disponible en la Etapa de Pagos', hash: null },
+        { orden: 3, label: 'Verificar pagos del seguro', estado: pagoEstado, detalle: pagoDetalle, hash: '#pagos' },
         { orden: 4, label: 'La vuelta (evidencias por banco + códigos de bloqueo)', estado: 'proximamente', detalle: 'Disponible en la Etapa de la Vuelta', hash: null },
         {
             orden: 5, label: 'Iniciar reclamos por banco',

@@ -23,6 +23,7 @@ import { renderClientProfileSection } from './ui/clientProfileUI.js';
 import { renderUninsuredCardsSection } from './ui/uninsuredCardsUI.js';
 import { renderStepTemplateSection } from './ui/stepTemplateUI.js';
 import { renderGuiaSection } from './ui/guiaUI.js';
+import { renderPaymentSection } from './ui/paymentUI.js';
 import { mountClientContextBar } from './ui/clientContextBar.js';
 import { clearActiveClient } from './state/clientContext.js';
 
@@ -48,6 +49,7 @@ const routes = {
     tarjetasSinSeguro: renderUninsuredCardsSection,
     plantillasPasos: renderStepTemplateSection,
     guia: renderGuiaSection,
+    pagos: renderPaymentSection,
 };
 
 const _S = 'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
@@ -77,6 +79,7 @@ const NAV_LABELS = {
     tarjetasSinSeguro: `${ico('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>')} Sin Seguro`,
     plantillasPasos:   `${ico('<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>')} Pasos por Banco`,
     guia:              `${ico('<polygon points="3 11 22 2 13 21 11 13 3 11"/>')} Guía`,
+    pagos:             `${ico('<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>')} Pagos Seguro`,
 };
 
 /** Orden de items en el sidebar */
@@ -97,6 +100,7 @@ const SIDEBAR_ORDER = [
     'seguimiento',
     'alertas',
     'plantillasPasos',
+    'pagos',
     'adelantos',
     'consultaAdelantos',
     'usuarios',

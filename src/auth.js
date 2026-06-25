@@ -76,7 +76,7 @@ const ALL_SCREEN_KEYS = [
     'alertas', 'usuarios', 'actividad', 'adelantos', 'consultaAdelantos',
     'fichaCliente',
     'tarjetasSinSeguro',
-    'plantillasPasos', 'guia',
+    'plantillasPasos', 'guia', 'pagos',
 ];
 
 /** Verifica si el usuario tiene acceso a una pantalla. */
