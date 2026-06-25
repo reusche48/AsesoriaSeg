@@ -1,5 +1,6 @@
 import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { claimRepository } from '../repositories/claimRepository.js';
+import { handleEventForSteps } from './claimStepService.js';
 
 /**
  * Servicio de dominio para gestión de eventos de seguimiento de reclamos.
@@ -15,9 +16,10 @@ import { claimRepository } from '../repositories/claimRepository.js';
  * @param {number} [diasEspera] - Días de espera para respuesta (opcional)
  * @param {string} [tipoDias] - 'naturales' o 'laborables' (opcional)
  * @param {string} [eventoOrigenId] - ID del evento origen si es seguimiento (opcional)
+ * @param {string} [stepId] - ID del paso del trámite al que pertenece el evento (opcional)
  * @returns {object} { success, event } o { success: false, errors }
  */
-export function addClaimEvent(claimId, date, description, observacion, evidence, diasEspera, tipoDias, eventoOrigenId) {
+export function addClaimEvent(claimId, date, description, observacion, evidence, diasEspera, tipoDias, eventoOrigenId, stepId) {
     const errors = [];
 
     // Validar claimId
@@ -66,6 +68,7 @@ export function addClaimEvent(claimId, date, description, observacion, evidence,
         tipoDias: tipoDias || null,
         fechaVencimiento: fechaVencimiento,
         eventoOrigenId: eventoOrigenId || null,
+        stepId: stepId || null,
     });
 
     // Cambiar estado del reclamo según el tipo de evento
@@ -78,6 +81,9 @@ export function addClaimEvent(claimId, date, description, observacion, evidence,
             claimRepository.update(claimId, { estado: 'En Proceso' });
         }
     }
+
+    // Transición de pasos del trámite (si el evento pertenece a un paso o es seguimiento)
+    handleEventForSteps(event);
 
     return { success: true, event };
 }
