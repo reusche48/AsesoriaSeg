@@ -187,6 +187,10 @@ async function navigateTo(section) {
     }
     const container = document.getElementById('app-container');
     if (!container) return;
+    // Al salir de Eventos, olvidar el reclamo enfocado (de Alertas → Ver Historial)
+    if (section !== 'eventos') {
+        try { sessionStorage.removeItem('eventos_focus_claim'); } catch (e) { /* ignore */ }
+    }
     const renderFn = routes[section];
     if (renderFn) {
         container.innerHTML = '<div class="empty-state" style="padding:2rem;">Cargando...</div>';

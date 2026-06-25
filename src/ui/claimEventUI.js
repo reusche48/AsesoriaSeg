@@ -14,15 +14,25 @@ let selectedEventEvidenceDataUrl = null;
 let eventEvidenceUploading = false;
 let eventFilterDesde = null;
 let eventFilterHasta = null;
-let pendingPreselectClaimId = null;
+
+const FOCUS_KEY = 'eventos_focus_claim';
 
 /**
- * Pre-selecciona un reclamo para que al entrar a la sección Eventos
- * se muestren directamente todos sus eventos.
+ * Fija un reclamo para que al entrar a la sección Eventos se muestren
+ * directamente sus eventos. Se guarda en sessionStorage (no en una variable
+ * que se consume en el primer render) para ser robusto ante doble render.
  * @param {string} claimId
  */
 export function setEventPreselectClaim(claimId) {
-    pendingPreselectClaimId = claimId || null;
+    try {
+        if (claimId) sessionStorage.setItem(FOCUS_KEY, claimId);
+        else sessionStorage.removeItem(FOCUS_KEY);
+    } catch (e) { /* ignore */ }
+}
+
+/** Limpia el reclamo enfocado (al salir de Eventos o al filtrar manualmente). */
+export function clearEventFocusClaim() {
+    try { sessionStorage.removeItem(FOCUS_KEY); } catch (e) { /* ignore */ }
 }
 
 export function renderClaimEventSection(container) {
@@ -69,12 +79,20 @@ export function renderClaimEventSection(container) {
         eventFilterDesde = null; eventFilterHasta = null;
         container.querySelector('#event-filter-desde').value = '';
         container.querySelector('#event-filter-hasta').value = '';
-        _refreshCurrentEventView(container);
+        // Limpiar también el reclamo enfocado para ver todos los eventos
+        container.querySelector('#event-claim-search').value = '';
+        container.querySelector('#event-claim-id').value = '';
+        clearEventFocusClaim();
+        showLatestEvents(container);
     });
 
-    // Si se entró con un reclamo pre-seleccionado (ej: desde Alertas → Ver Historial)
-    if (pendingPreselectClaimId) {
-        const claim = claimRepository.getById(pendingPreselectClaimId);
+    // Si se entró con un reclamo enfocado (ej: desde Alertas → Ver Historial).
+    // Se lee de sessionStorage SIN limpiarlo aquí, para ser robusto ante doble render.
+    let focusClaimId = null;
+    try { focusClaimId = sessionStorage.getItem(FOCUS_KEY); } catch (e) { /* ignore */ }
+
+    if (focusClaimId) {
+        const claim = claimRepository.getById(focusClaimId);
         if (claim) {
             const info = buildClaimLabel(claim);
             container.querySelector('#event-claim-search').value = info.text;
@@ -83,7 +101,6 @@ export function renderClaimEventSection(container) {
         } else {
             showLatestEvents(container);
         }
-        pendingPreselectClaimId = null;
     } else {
         // Si hay cliente activo global, mostrar los eventos de sus reclamos
         const activeClientId = getActiveClientId();
@@ -159,6 +176,7 @@ function setupClaimAutocomplete(container) {
                 searchInput.value = item.textContent;
                 resultsDiv.innerHTML = '';
                 resultsDiv.classList.remove('open');
+                setEventPreselectClaim(hiddenInput.value); // mantener el foco sincronizado con la selección manual
                 refreshEventList(container, hiddenInput.value);
             });
         });
