@@ -15,6 +15,18 @@
     </FilesMatch>
 </IfModule>
 
+# Tipo MIME del manifest de la PWA (para que el celular lo acepte)
+<IfModule mod_mime.c>
+    AddType application/manifest+json .webmanifest
+</IfModule>
+# El service worker debe revalidarse siempre (para recibir actualizaciones)
+<IfModule mod_headers.c>
+    <FilesMatch "^sw\.js$">
+        Header set Cache-Control "no-cache, must-revalidate"
+        Header set Service-Worker-Allowed "/"
+    </FilesMatch>
+</IfModule>
+
 # Desactivar la caché heurística por Expires para estos tipos
 <IfModule mod_expires.c>
     ExpiresActive On

@@ -14,6 +14,31 @@ import { confirmarEliminacion } from '../utils.js';
 
 const TIPO_LABEL = { retiro_cajero: 'Retiro cajero', compra: 'Compra', transferencia: 'Transferencia', otro: 'Otro' };
 
+// ── Auto-refresco (varios celulares sobre la misma vuelta) ──
+let pollTimer = null;
+const POLL_MS = 6000;
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+/** Huella de los datos de las vueltas del cliente (para detectar cambios de otros dispositivos). */
+function vueltaSignature(clientId) {
+    const parts = [];
+    for (const v of getVueltas(clientId)) {
+        parts.push(`${v.id}:${v.estado}:${v.bancoIds || ''}:${v.denunciaEvidencia || ''}:${v.denunciaFecha || ''}`);
+        getEvidencias(v.id).forEach(e => parts.push('e' + e.id + (e.evidencia || '')));
+        getBlockingCodes(v.id).forEach(c => parts.push('c' + c.id));
+    }
+    return parts.sort().join('|');
+}
+function startPolling(container, clientId) {
+    stopPolling();
+    pollTimer = setInterval(async () => {
+        if (!location.hash.startsWith('#vuelta')) { stopPolling(); return; }   // salió de la sección
+        if (document.querySelector('.form-modal-overlay')) return;             // no interrumpir si hay un modal abierto
+        const before = vueltaSignature(clientId);
+        try { await loadCollections(['vueltas', 'vueltaEvidencias', 'blockingCodes', 'payments']); } catch (e) { return; }
+        if (vueltaSignature(clientId) !== before) paint(container);            // solo re-pinta si algo cambió
+    }, POLL_MS);
+}
+
 // Entrada (router / botón Actualizar): trae datos frescos del servidor para que
 // varias personas/celulares vean la misma vuelta en vivo, y luego pinta.
 export async function renderVueltaSection(container) {
@@ -24,6 +49,7 @@ export async function renderVueltaSection(container) {
 
 // Re-pintado interno (tras una acción): usa el caché ya actualizado, sin recargar.
 function paint(container) {
+    stopPolling();
     const active = getActiveClient();
     if (!active) { renderPicker(container); return; }
     renderForClient(container, active);
@@ -91,6 +117,9 @@ function renderForClient(container, client) {
 
     // Listeners por panel de vuelta abierta
     abiertas.forEach(v => wireVueltaPanel(container, client, v));
+
+    // Auto-refresco mientras se ve la sección (para ver lo que cargan otros dispositivos)
+    startPolling(container, client.id);
 }
 
 function renderVueltaPanel(v) {
