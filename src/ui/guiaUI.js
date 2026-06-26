@@ -1,9 +1,21 @@
 import { getActiveClient, setActiveClient } from '../state/clientContext.js';
 import { clientRepository } from '../repositories/clientRepository.js';
+import { getCollection } from '../storage.js';
 import { getNextActionsForClient } from '../services/nextActionService.js';
 import { markStepComplete } from '../services/claimStepService.js';
 import { setEventPreselectClaim } from './claimEventUI.js';
 import { openStepEventModal } from './claimEventModal.js';
+import { startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
+
+/** Huella de datos para detectar avances de otros dispositivos. */
+function guiaSignature() {
+    const ev = getCollection('claimEvents').length;
+    const st = getCollection('claimSteps').map(s => s.id + s.estado).join();
+    const pay = getCollection('payments').length;
+    const vu = getCollection('vueltas').map(v => v.id + v.estado).join();
+    const cl = getCollection('claims').map(c => c.id + c.estado).join();
+    return `e${ev}|s${st}|p${pay}|v${vu}|c${cl}`;
+}
 
 const ESTADO_GENERAL = {
     hecho:        { bg: '#064e3b', color: '#34d399', label: '✓ Hecho' },
@@ -17,12 +29,15 @@ const ESTADO_PASO = {
 };
 
 export function renderGuiaSection(container) {
+    stopAutoRefresh();
     const active = getActiveClient();
     if (!active) {
         renderPicker(container);
         return;
     }
     renderForClient(container, active);
+    startAutoRefresh('#guia', ['claims', 'claimEvents', 'claimSteps', 'payments', 'vueltas', 'incidents'],
+        guiaSignature, () => renderGuiaSection(container), 8000);
 }
 
 function renderPicker(container) {

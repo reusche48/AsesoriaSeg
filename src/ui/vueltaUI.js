@@ -8,6 +8,7 @@ import {
     canCloseVuelta, closeVuelta, bancosDeVuelta, tarjetasDeBanco, TIPOS_EVIDENCIA,
 } from '../services/vueltaService.js';
 import { uploadFile, loadCollections } from '../storage.js';
+import { startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
 import { openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert } from './modalHelper.js';
 import { confirmarEliminacion } from '../utils.js';
@@ -15,9 +16,6 @@ import { confirmarEliminacion } from '../utils.js';
 const TIPO_LABEL = { retiro_cajero: 'Retiro cajero', compra: 'Compra', transferencia: 'Transferencia', otro: 'Otro' };
 
 // ── Auto-refresco (varios celulares sobre la misma vuelta) ──
-let pollTimer = null;
-const POLL_MS = 6000;
-function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 /** Huella de los datos de las vueltas del cliente (para detectar cambios de otros dispositivos). */
 function vueltaSignature(clientId) {
     const parts = [];
@@ -27,16 +25,6 @@ function vueltaSignature(clientId) {
         getBlockingCodes(v.id).forEach(c => parts.push('c' + c.id));
     }
     return parts.sort().join('|');
-}
-function startPolling(container, clientId) {
-    stopPolling();
-    pollTimer = setInterval(async () => {
-        if (!location.hash.startsWith('#vuelta')) { stopPolling(); return; }   // salió de la sección
-        if (document.querySelector('.form-modal-overlay')) return;             // no interrumpir si hay un modal abierto
-        const before = vueltaSignature(clientId);
-        try { await loadCollections(['vueltas', 'vueltaEvidencias', 'blockingCodes', 'payments']); } catch (e) { return; }
-        if (vueltaSignature(clientId) !== before) paint(container);            // solo re-pinta si algo cambió
-    }, POLL_MS);
 }
 
 // Entrada (router / botón Actualizar): trae datos frescos del servidor para que
@@ -49,7 +37,7 @@ export async function renderVueltaSection(container) {
 
 // Re-pintado interno (tras una acción): usa el caché ya actualizado, sin recargar.
 function paint(container) {
-    stopPolling();
+    stopAutoRefresh();
     const active = getActiveClient();
     if (!active) { renderPicker(container); return; }
     renderForClient(container, active);
@@ -119,7 +107,8 @@ function renderForClient(container, client) {
     abiertas.forEach(v => wireVueltaPanel(container, client, v));
 
     // Auto-refresco mientras se ve la sección (para ver lo que cargan otros dispositivos)
-    startPolling(container, client.id);
+    startAutoRefresh('#vuelta', ['vueltas', 'vueltaEvidencias', 'blockingCodes', 'payments'],
+        () => vueltaSignature(client.id), () => paint(container), 6000);
 }
 
 function renderVueltaPanel(v) {

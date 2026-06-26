@@ -4,8 +4,19 @@ import { incidentRepository } from '../repositories/incidentRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import { openFormModal, closeFormModal, clearModalErrors } from './modalHelper.js';
-import { uploadFile } from '../storage.js';
+import { uploadFile, getCollection } from '../storage.js';
 import { setEventPreselectClaim } from './claimEventUI.js';
+import { startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
+
+// Pestaña activa de Alertas (se conserva entre re-renders / auto-refresco)
+let alertActiveTab = 'vencimientos';
+
+/** Huella de datos para detectar cambios de otros dispositivos. */
+function alertsSignature() {
+    const ev = getCollection('claimEvents').length;
+    const cl = getCollection('claims').map(c => c.id + (c.estado || '')).join();
+    return `e${ev}|c${cl}`;
+}
 
 /** Navega a la sección Eventos mostrando todos los eventos del reclamo. */
 function verHistorialEnEventos(claimId) {
@@ -39,8 +50,11 @@ function matchesClientFilter(name) {
 }
 
 export function renderAlertsSection(container) {
+    stopAutoRefresh();
     const allEvents = getEventsWithDeadline();
     const allInactive = getClaimsWithoutActivity();
+    const tabAct = (t) => alertActiveTab === t;
+    const tabStyle = (t) => `padding:0.5rem 1.1rem;border:none;border-radius:6px 6px 0 0;background:${tabAct(t) ? '#7c3aed' : '#1f2937'};color:${tabAct(t) ? '#fff' : '#9ca3af'};font-weight:600;font-size:0.9rem;cursor:pointer;`;
 
     // Lista de clientes con alertas, para sugerencias del buscador
     const nombresSet = new Set();
@@ -64,15 +78,15 @@ export function renderAlertsSection(container) {
             </div>
             <div id="alert-filter-hint" style="font-size:0.82rem;color:#9ca3af;margin-bottom:0.75rem;"></div>
             <div class="tab-bar" style="display:flex;gap:8px;margin-bottom:1rem;border-bottom:2px solid #1f2937;padding-bottom:0;">
-                <button class="tab-btn active" data-tab="vencimientos" style="padding:0.5rem 1.1rem;border:none;border-radius:6px 6px 0 0;background:#7c3aed;color:#fff;font-weight:600;font-size:0.9rem;cursor:pointer;">
+                <button class="tab-btn ${tabAct('vencimientos') ? 'active' : ''}" data-tab="vencimientos" style="${tabStyle('vencimientos')}">
                     Vencimientos de Plazos <span id="tab-badge-venc"></span>
                 </button>
-                <button class="tab-btn" data-tab="inactividad" style="padding:0.5rem 1.1rem;border:none;border-radius:6px 6px 0 0;background:#1f2937;color:#9ca3af;font-weight:600;font-size:0.9rem;cursor:pointer;">
+                <button class="tab-btn ${tabAct('inactividad') ? 'active' : ''}" data-tab="inactividad" style="${tabStyle('inactividad')}">
                     Reclamos sin Actividad <span id="tab-badge-inact"></span>
                 </button>
             </div>
-            <div id="tab-content-vencimientos"></div>
-            <div id="tab-content-inactividad" style="display:none;"></div>
+            <div id="tab-content-vencimientos" style="display:${tabAct('vencimientos') ? '' : 'none'};"></div>
+            <div id="tab-content-inactividad" style="display:${tabAct('inactividad') ? '' : 'none'};"></div>
         </div>
     `;
 
@@ -117,6 +131,7 @@ export function renderAlertsSection(container) {
     container.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const tab = btn.getAttribute('data-tab');
+            alertActiveTab = tab;
             container.querySelectorAll('.tab-btn').forEach(b => {
                 const isActive = b === btn;
                 b.style.background = isActive ? '#7c3aed' : '#1f2937';
@@ -130,6 +145,13 @@ export function renderAlertsSection(container) {
     });
 
     applyFilterAndRender();
+
+    // Auto-refresco: ver en vivo nuevos eventos/avances de otros dispositivos.
+    // No re-pinta si estás escribiendo en el buscador.
+    startAutoRefresh('#alertas', ['claims', 'claimEvents', 'incidents'], alertsSignature, () => {
+        if (document.activeElement && document.activeElement.id === 'alert-client-search') return;
+        renderAlertsSection(container);
+    }, 8000);
 }
 
 // ──────────────────────────────────────────────
