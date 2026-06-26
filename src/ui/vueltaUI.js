@@ -7,14 +7,23 @@ import {
     getBlockingCodes, addBlockingCode, deleteBlockingCode,
     canCloseVuelta, closeVuelta, bancosDeVuelta, tarjetasDeBanco, TIPOS_EVIDENCIA,
 } from '../services/vueltaService.js';
-import { uploadFile } from '../storage.js';
+import { uploadFile, loadCollections } from '../storage.js';
 import { openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert } from './modalHelper.js';
 import { confirmarEliminacion } from '../utils.js';
 
 const TIPO_LABEL = { retiro_cajero: 'Retiro cajero', compra: 'Compra', transferencia: 'Transferencia', otro: 'Otro' };
 
-export function renderVueltaSection(container) {
+// Entrada (router / botón Actualizar): trae datos frescos del servidor para que
+// varias personas/celulares vean la misma vuelta en vivo, y luego pinta.
+export async function renderVueltaSection(container) {
+    container.innerHTML = '<div class="empty-state" style="padding:1.5rem;">Actualizando…</div>';
+    try { await loadCollections(['vueltas', 'vueltaEvidencias', 'blockingCodes', 'payments']); } catch (e) { /* ignore */ }
+    paint(container);
+}
+
+// Re-pintado interno (tras una acción): usa el caché ya actualizado, sin recargar.
+function paint(container) {
     const active = getActiveClient();
     if (!active) { renderPicker(container); return; }
     renderForClient(container, active);
@@ -38,7 +47,7 @@ function renderPicker(container) {
     input.addEventListener('change', () => {
         const opt = [...container.querySelectorAll('#vu-client-list option')].find(o => o.value === input.value);
         const id = opt?.getAttribute('data-id');
-        if (id) { setActiveClient(id); renderVueltaSection(container); }
+        if (id) { setActiveClient(id); paint(container); }
     });
 }
 
@@ -64,7 +73,10 @@ function renderForClient(container, client) {
     container.innerHTML = `<div class="section">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
             <h2 class="section-title" style="margin:0;">🔄 La Vuelta: ${esc(client.nombreCompleto)} ${esc(client.apellidosCompletos)}</h2>
-            <button type="button" class="btn btn-secondary" id="vu-cambiar">Cambiar cliente</button>
+            <div style="display:flex;gap:0.5rem;">
+                <button type="button" class="btn btn-secondary" id="vu-actualizar" title="Traer lo último (si tu compañero cargó algo)">🔄 Actualizar</button>
+                <button type="button" class="btn btn-secondary" id="vu-cambiar">Cambiar cliente</button>
+            </div>
         </div>
         <h3 style="color:#cbd5e1;font-size:0.95rem;margin:1rem 0 0.5rem;">Nueva vuelta</h3>
         ${iniciarHtml}
@@ -72,7 +84,8 @@ function renderForClient(container, client) {
         ${cerradasHtml}
     </div>`;
 
-    container.querySelector('#vu-cambiar').addEventListener('click', () => { setActiveClient(null); renderVueltaSection(container); });
+    container.querySelector('#vu-actualizar').addEventListener('click', () => renderVueltaSection(container));
+    container.querySelector('#vu-cambiar').addEventListener('click', () => { setActiveClient(null); paint(container); });
     const iniBtn = container.querySelector('#vu-iniciar');
     if (iniBtn) iniBtn.addEventListener('click', () => openIniciarModal(container, client.id));
 
@@ -134,7 +147,7 @@ function wireVueltaPanel(container, client, v) {
     if (cerrarBtn && !cerrarBtn.hasAttribute('disabled')) cerrarBtn.addEventListener('click', async () => {
         if (!await confirmarEliminacion('¿Cerrar esta vuelta? Ya no podrás agregar evidencias ni códigos.')) return;
         const r = closeVuelta(v.id);
-        if (r.success) renderVueltaSection(container); else alert(r.error);
+        if (r.success) paint(container); else alert(r.error);
     });
     panel.querySelector('.vu-denuncia').addEventListener('click', () => openDenunciaModal(container, v));
     const vd = panel.querySelector('.vu-ver-den');
@@ -142,8 +155,8 @@ function wireVueltaPanel(container, client, v) {
     panel.querySelectorAll('.vu-add-ev').forEach(b => b.addEventListener('click', () => openEvidenciaModal(container, v.id, b.getAttribute('data-banco'))));
     panel.querySelectorAll('.vu-add-cd').forEach(b => b.addEventListener('click', () => openCodigoModal(container, v.id, client.id, b.getAttribute('data-banco'))));
     panel.querySelectorAll('.vu-ver').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(a.getAttribute('data-file')); }));
-    panel.querySelectorAll('.vu-del-ev').forEach(a => a.addEventListener('click', async (e) => { e.preventDefault(); if (await confirmarEliminacion('¿Eliminar evidencia?')) { deleteEvidencia(a.getAttribute('data-id')); renderVueltaSection(container); } }));
-    panel.querySelectorAll('.vu-del-cd').forEach(a => a.addEventListener('click', async (e) => { e.preventDefault(); if (await confirmarEliminacion('¿Eliminar código de bloqueo?')) { deleteBlockingCode(a.getAttribute('data-id')); renderVueltaSection(container); } }));
+    panel.querySelectorAll('.vu-del-ev').forEach(a => a.addEventListener('click', async (e) => { e.preventDefault(); if (await confirmarEliminacion('¿Eliminar evidencia?')) { deleteEvidencia(a.getAttribute('data-id')); paint(container); } }));
+    panel.querySelectorAll('.vu-del-cd').forEach(a => a.addEventListener('click', async (e) => { e.preventDefault(); if (await confirmarEliminacion('¿Eliminar código de bloqueo?')) { deleteBlockingCode(a.getAttribute('data-id')); paint(container); } }));
 }
 
 function openIniciarModal(container, clientId) {
@@ -154,7 +167,7 @@ function openIniciarModal(container, clientId) {
                <p style="color:#9ca3af;font-size:0.82rem;">Solo se incluirán los bancos con el seguro al día. Los demás podrás hacerlos en otra vuelta cuando estén pagados.</p>`,
         onSubmit: (form) => {
             const r = startVuelta(clientId, form.querySelector('#vu-fecha').value);
-            if (r.success) { closeFormModal(); renderVueltaSection(container); } else showModalAlert(r.error, 'error');
+            if (r.success) { closeFormModal(); paint(container); } else showModalAlert(r.error, 'error');
         },
     });
 }
@@ -192,7 +205,7 @@ function openEvidenciaModal(container, vueltaId, bancoId) {
                 fecha: form.querySelector('#ev-fecha').value, hora: form.querySelector('#ev-hora').value,
                 concepto: form.querySelector('#ev-concepto').value, evidencia: evidenceUrl,
             });
-            if (r.success) { closeFormModal(); renderVueltaSection(container); } else showModalAlert(r.error, 'error');
+            if (r.success) { closeFormModal(); paint(container); } else showModalAlert(r.error, 'error');
         },
     });
 }
@@ -212,7 +225,7 @@ function openCodigoModal(container, vueltaId, clientId, bancoId) {
         onSubmit: (form) => {
             const tarjetaIds = [...form.querySelectorAll('.cd-card:checked')].map(c => c.value);
             const r = addBlockingCode(vueltaId, { bancoId, codigo: form.querySelector('#cd-codigo').value, tarjetaIds, observacion: form.querySelector('#cd-obs').value });
-            if (r.success) { closeFormModal(); renderVueltaSection(container); } else showModalAlert(r.error, 'error');
+            if (r.success) { closeFormModal(); paint(container); } else showModalAlert(r.error, 'error');
         },
     });
 }
@@ -238,7 +251,7 @@ function openDenunciaModal(container, vuelta) {
         onSubmit: (form) => {
             if (uploading) { showModalAlert('Espere a que suba el archivo.', 'error'); return; }
             updateVuelta(vuelta.id, { denunciaFecha: form.querySelector('#dn-fecha').value || null, denunciaEvidencia: evidenceUrl });
-            closeFormModal(); renderVueltaSection(container);
+            closeFormModal(); paint(container);
         },
     });
 }
