@@ -6,7 +6,7 @@ import { claimStepRepository } from '../repositories/claimStepRepository.js';
 import { getEventsWithDeadline } from './claimEventService.js';
 import { ensureClaimSteps } from './claimStepService.js';
 import { getPaymentStatusForClient } from './paymentService.js';
-import { getVueltaState } from './vueltaService.js';
+import { getOpenVueltas, getVueltas, eligibleBanks, bancosCerradosSet } from './vueltaService.js';
 
 /**
  * Motor de "siguiente acción" (la secretaria): qué hacer ahora por cliente y banco.
@@ -23,26 +23,29 @@ export function getGeneralStepsForClient(clientId) {
     const conSeguro = cards.filter(c => c.seguroId && c.activo !== false && Number(c.activo) !== 0);
     const claims = claimsOfClient(clientId);
 
-    const vueltaState = getVueltaState(clientId);
-
-    // Paso 3: estado real de pagos del seguro por banco. Tras la vuelta cerrada ya no se exige.
+    // Paso 3: pagos por banco. Los bancos ya cubiertos por una vuelta cerrada ya no se exigen.
+    const cerrados = bancosCerradosSet(clientId);
+    const pagosSt = getPaymentStatusForClient(clientId).filter(s => !cerrados.has(s.bancoId));
+    const pagosPend = pagosSt.filter(s => s.estado !== 'al_dia');
     let pagoEstado, pagoDetalle;
-    if (vueltaState === 'cerrada') {
-        pagoEstado = 'hecho'; pagoDetalle = 'Ya no se exige (vuelta cerrada)';
-    } else {
-        const pagosSt = getPaymentStatusForClient(clientId);
-        const pagosPend = pagosSt.filter(s => s.estado !== 'al_dia');
-        if (pagosSt.length === 0) { pagoEstado = 'hecho'; pagoDetalle = 'Sin seguros que pagar'; }
-        else if (pagosPend.length === 0) { pagoEstado = 'hecho'; pagoDetalle = 'Todos los bancos al día'; }
-        else { pagoEstado = 'pendiente'; pagoDetalle = 'Falta pagar: ' + pagosPend.map(v => v.bancoNombre).join(', '); }
-    }
+    if (pagosSt.length === 0) { pagoEstado = 'hecho'; pagoDetalle = cerrados.size ? 'Pagos cubiertos / vuelta realizada' : 'Sin seguros que pagar'; }
+    else if (pagosPend.length === 0) { pagoEstado = 'hecho'; pagoDetalle = 'Todos los bancos al día'; }
+    else { pagoEstado = 'pendiente'; pagoDetalle = 'Falta pagar: ' + pagosPend.map(v => v.bancoNombre).join(', '); }
 
-    // Paso 4: estado de la vuelta
-    const vueltaCfg = {
-        ninguna: { estado: 'pendiente', detalle: 'Aún no se inicia la vuelta' },
-        abierta: { estado: 'pendiente', detalle: 'Vuelta en curso — completar evidencias/códigos y cerrar' },
-        cerrada: { estado: 'hecho', detalle: 'Vuelta cerrada' },
-    }[vueltaState];
+    // Paso 4: estado de la(s) vuelta(s)
+    const abiertas = getOpenVueltas(clientId);
+    const todas = getVueltas(clientId);
+    const elig = eligibleBanks(clientId);
+    let vueltaCfg;
+    if (abiertas.length > 0) {
+        vueltaCfg = { estado: 'pendiente', detalle: `Vuelta en curso — completar y cerrar${elig.length ? ' · pendientes: ' + elig.map(b => b.nombre).join(', ') : ''}` };
+    } else if (elig.length > 0) {
+        vueltaCfg = { estado: 'pendiente', detalle: 'Hacer vuelta de: ' + elig.map(b => b.nombre).join(', ') };
+    } else if (todas.some(v => v.estado === 'cerrada')) {
+        vueltaCfg = { estado: 'hecho', detalle: 'Vuelta(s) realizada(s)' };
+    } else {
+        vueltaCfg = { estado: 'pendiente', detalle: 'Aún no hay bancos con seguro al día para la vuelta' };
+    }
 
     return [
         { orden: 1, label: 'Registrar cliente', estado: 'hecho', detalle: '', hash: '#clientes' },

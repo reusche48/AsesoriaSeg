@@ -259,6 +259,7 @@ $TABLE_MAP = [
             'fechaCierre' => 'fecha_cierre',
             'denunciaEvidencia' => 'denuncia_evidencia',
             'denunciaFecha' => 'denuncia_fecha',
+            'bancoIds' => 'banco_ids',
             'observaciones' => 'observaciones',
         ]
     ],

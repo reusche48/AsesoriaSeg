@@ -3,12 +3,14 @@ import { vueltaEvidenceRepository } from '../repositories/vueltaEvidenceReposito
 import { blockingCodeRepository } from '../repositories/blockingCodeRepository.js';
 import { cardRepository } from '../repositories/cardRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
-import { paymentsRecentForVuelta } from './paymentService.js';
+import { getPaymentStatusForClient } from './paymentService.js';
 
 /**
- * Servicio de "La Vuelta": una por cliente, agrupa evidencias por banco,
- * códigos de bloqueo y la denuncia. No se cierra sin códigos de bloqueo;
- * no se inicia si el seguro no está pagado dentro de los últimos 30 días.
+ * Servicio de "La Vuelta".
+ * - Una vuelta cubre solo los bancos cuyo seguro está AL DÍA en ese momento.
+ * - Un cliente puede tener VARIAS vueltas (cada una cubre bancos distintos):
+ *   los bancos que faltan por pagar se hacen en otra vuelta más adelante.
+ * - No se cierra hasta registrar un código de bloqueo por cada banco de la vuelta.
  */
 
 export const TIPOS_EVIDENCIA = [
@@ -18,12 +20,39 @@ export const TIPOS_EVIDENCIA = [
     { value: 'otro', label: 'Otro' },
 ];
 
-/** Bancos donde el cliente tiene tarjetas activas. */
-export function bancosConTarjetas(clientId) {
-    const cards = cardRepository.findByClientId(clientId).filter(c => c.activo !== false && Number(c.activo) !== 0);
-    const ids = [...new Set(cards.map(c => c.bancoId))];
-    return ids.map(id => ({ id, nombre: bankRepository.getById(id)?.nombre || '—' }))
-        .sort((a, b) => a.nombre.localeCompare(b.nombre));
+export function getVueltas(clientId) {
+    return vueltaRepository.findByClientId(clientId).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+}
+export function getOpenVueltas(clientId) {
+    return getVueltas(clientId).filter(v => v.estado === 'abierta');
+}
+
+function parseBancoIds(vuelta) {
+    return (vuelta.bancoIds || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+/** Bancos (id+nombre) que cubre una vuelta. */
+export function bancosDeVuelta(vuelta) {
+    return parseBancoIds(vuelta).map(id => ({ id, nombre: bankRepository.getById(id)?.nombre || '—' }));
+}
+/** Conjunto de bancoIds incluidos en cualquier vuelta del cliente (abierta o cerrada). */
+function bancosEnVueltas(clientId) {
+    const set = new Set();
+    getVueltas(clientId).forEach(v => parseBancoIds(v).forEach(id => set.add(id)));
+    return set;
+}
+/** Conjunto de bancoIds cubiertos por vueltas YA CERRADAS (su seguro ya no se exige). */
+export function bancosCerradosSet(clientId) {
+    const set = new Set();
+    getVueltas(clientId).filter(v => v.estado === 'cerrada').forEach(v => parseBancoIds(v).forEach(id => set.add(id)));
+    return set;
+}
+
+/** Bancos elegibles para una NUEVA vuelta: seguro al día y aún no incluidos en otra vuelta. */
+export function eligibleBanks(clientId) {
+    const yaEnVuelta = bancosEnVueltas(clientId);
+    return getPaymentStatusForClient(clientId)
+        .filter(s => s.estado === 'al_dia' && !yaEnVuelta.has(s.bancoId))
+        .map(s => ({ id: s.bancoId, nombre: s.bancoNombre }));
 }
 
 export function tarjetasDeBanco(clientId, bancoId) {
@@ -31,30 +60,18 @@ export function tarjetasDeBanco(clientId, bancoId) {
         .filter(c => c.bancoId === bancoId && c.activo !== false && Number(c.activo) !== 0);
 }
 
-export function getOpenVuelta(clientId) { return vueltaRepository.getOpenForClient(clientId); }
-export function getVueltas(clientId) {
-    return vueltaRepository.findByClientId(clientId).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
-}
-
-/** Estado de la vuelta del cliente: 'ninguna' | 'abierta' | 'cerrada'. */
-export function getVueltaState(clientId) {
-    const vs = vueltaRepository.findByClientId(clientId);
-    if (vs.some(v => v.estado === 'abierta')) return 'abierta';
-    if (vs.some(v => v.estado === 'cerrada')) return 'cerrada';
-    return 'ninguna';
-}
-
-/** ¿Se puede iniciar una vuelta? Valida pagos recientes (30 días) y que no haya otra abierta. */
+/** ¿Se puede iniciar una nueva vuelta? (basta con que haya bancos elegibles). */
 export function canStartVuelta(clientId) {
-    if (getOpenVuelta(clientId)) return { ok: false, motivo: 'Ya hay una vuelta abierta para este cliente.' };
-    const pr = paymentsRecentForVuelta(clientId, 30);
-    if (!pr.ok) return { ok: false, motivo: 'El seguro debe estar pagado (últimos 30 días). Falta pago reciente en: ' + pr.faltan.join(', ') };
-    return { ok: true };
+    const elig = eligibleBanks(clientId);
+    if (elig.length === 0) {
+        return { ok: false, motivo: 'No hay bancos con el seguro al día pendientes de vuelta. Registra el pago en “Pagos Seguro” para habilitarlos.' };
+    }
+    return { ok: true, bancos: elig };
 }
 
 export function startVuelta(clientId, fecha) {
-    const chk = canStartVuelta(clientId);
-    if (!chk.ok) return { success: false, error: chk.motivo };
+    const elig = eligibleBanks(clientId);
+    if (elig.length === 0) return { success: false, error: 'No hay bancos con seguro al día pendientes de vuelta.' };
     const v = vueltaRepository.save({
         clienteId: clientId,
         fecha: fecha || new Date().toISOString().split('T')[0],
@@ -62,30 +79,24 @@ export function startVuelta(clientId, fecha) {
         fechaCierre: null,
         denunciaEvidencia: null,
         denunciaFecha: null,
+        bancoIds: elig.map(b => b.id).join(','),
         observaciones: null,
     });
     return { success: true, vuelta: v };
 }
 
-export function updateVuelta(vueltaId, data) {
-    return vueltaRepository.update(vueltaId, data);
-}
+export function updateVuelta(vueltaId, data) { return vueltaRepository.update(vueltaId, data); }
 
 // ── Evidencias ──
 export function getEvidencias(vueltaId) {
-    return vueltaEvidenceRepository.findByVueltaId(vueltaId)
-        .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
+    return vueltaEvidenceRepository.findByVueltaId(vueltaId).sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
 }
 export function addEvidencia(vueltaId, data) {
     if (!data.bancoId) return { success: false, error: 'Banco requerido.' };
     if (!data.tipo) return { success: false, error: 'Tipo de evidencia requerido.' };
     const e = vueltaEvidenceRepository.save({
-        vueltaId,
-        bancoId: data.bancoId,
-        tipo: data.tipo,
-        evidencia: data.evidencia || null,
-        fecha: data.fecha || null,
-        hora: data.hora || null,
+        vueltaId, bancoId: data.bancoId, tipo: data.tipo,
+        evidencia: data.evidencia || null, fecha: data.fecha || null, hora: data.hora || null,
         concepto: (data.concepto || '').trim() || null,
     });
     return { success: true, evidencia: e };
@@ -93,16 +104,12 @@ export function addEvidencia(vueltaId, data) {
 export function deleteEvidencia(id) { vueltaEvidenceRepository.delete(id); }
 
 // ── Códigos de bloqueo ──
-export function getBlockingCodes(vueltaId) {
-    return blockingCodeRepository.findByVueltaId(vueltaId);
-}
+export function getBlockingCodes(vueltaId) { return blockingCodeRepository.findByVueltaId(vueltaId); }
 export function addBlockingCode(vueltaId, data) {
     if (!data.bancoId) return { success: false, error: 'Banco requerido.' };
     if (!data.codigo || !data.codigo.trim()) return { success: false, error: 'Código de bloqueo requerido.' };
     const c = blockingCodeRepository.save({
-        vueltaId,
-        bancoId: data.bancoId,
-        codigo: data.codigo.trim(),
+        vueltaId, bancoId: data.bancoId, codigo: data.codigo.trim(),
         tarjetaIds: Array.isArray(data.tarjetaIds) ? data.tarjetaIds.join(',') : (data.tarjetaIds || null),
         observacion: (data.observacion || '').trim() || null,
     });
@@ -110,18 +117,19 @@ export function addBlockingCode(vueltaId, data) {
 }
 export function deleteBlockingCode(id) { blockingCodeRepository.delete(id); }
 
-/** ¿Se puede cerrar? Cada banco con tarjetas debe tener al menos un código de bloqueo. */
-export function canCloseVuelta(vueltaId, clientId) {
-    const bancos = bancosConTarjetas(clientId);
-    const codes = getBlockingCodes(vueltaId);
-    const bancosConCodigo = new Set(codes.map(c => c.bancoId));
-    const faltan = bancos.filter(b => !bancosConCodigo.has(b.id)).map(b => b.nombre);
+/** ¿Se puede cerrar? Cada banco de la vuelta debe tener al menos un código de bloqueo. */
+export function canCloseVuelta(vuelta) {
+    const bancos = bancosDeVuelta(vuelta);
+    const conCodigo = new Set(getBlockingCodes(vuelta.id).map(c => c.bancoId));
+    const faltan = bancos.filter(b => !conCodigo.has(b.id)).map(b => b.nombre);
     if (faltan.length) return { ok: false, motivo: 'Falta registrar código de bloqueo en: ' + faltan.join(', ') };
     return { ok: true };
 }
 
-export function closeVuelta(vueltaId, clientId) {
-    const chk = canCloseVuelta(vueltaId, clientId);
+export function closeVuelta(vueltaId) {
+    const v = vueltaRepository.getById(vueltaId);
+    if (!v) return { success: false, error: 'Vuelta no encontrada.' };
+    const chk = canCloseVuelta(v);
     if (!chk.ok) return { success: false, error: chk.motivo };
     vueltaRepository.update(vueltaId, { estado: 'cerrada', fechaCierre: new Date().toISOString() });
     return { success: true };

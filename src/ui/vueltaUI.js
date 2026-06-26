@@ -2,11 +2,10 @@ import { getActiveClient, setActiveClient } from '../state/clientContext.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import {
-    getOpenVuelta, getVueltas, canStartVuelta, startVuelta, updateVuelta,
+    getOpenVueltas, getVueltas, eligibleBanks, canStartVuelta, startVuelta, updateVuelta,
     getEvidencias, addEvidencia, deleteEvidencia,
     getBlockingCodes, addBlockingCode, deleteBlockingCode,
-    canCloseVuelta, closeVuelta,
-    bancosConTarjetas, tarjetasDeBanco, TIPOS_EVIDENCIA,
+    canCloseVuelta, closeVuelta, bancosDeVuelta, tarjetasDeBanco, TIPOS_EVIDENCIA,
 } from '../services/vueltaService.js';
 import { uploadFile } from '../storage.js';
 import { openFileViewer } from '../app.js';
@@ -26,7 +25,7 @@ function renderPicker(container) {
     container.innerHTML = `
         <div class="section">
             <h2 class="section-title">🔄 La Vuelta</h2>
-            <p style="color:#9ca3af;">Selecciona un cliente para gestionar su vuelta (evidencias por banco, códigos de bloqueo y denuncia).</p>
+            <p style="color:#9ca3af;">Selecciona un cliente para gestionar sus vueltas (evidencias por banco, códigos de bloqueo y denuncia).</p>
             <div class="form-group" style="max-width:420px;">
                 <label for="vu-client">Cliente</label>
                 <input type="text" id="vu-client" list="vu-client-list" autocomplete="off" placeholder="Escribe nombre o DNI...">
@@ -44,38 +43,49 @@ function renderPicker(container) {
 }
 
 function renderForClient(container, client) {
-    const abierta = getOpenVuelta(client.id);
-    const header = `
+    const abiertas = getOpenVueltas(client.id);
+    const cerradas = getVueltas(client.id).filter(v => v.estado === 'cerrada');
+    const chk = canStartVuelta(client.id);
+    const elig = eligibleBanks(client.id);
+
+    const iniciarHtml = chk.ok
+        ? `<div style="background:#111827;border:1px solid #1f2937;border-radius:8px;padding:0.85rem 1rem;">
+                <div style="color:#cbd5e1;margin-bottom:0.5rem;">Bancos al día listos para una vuelta: <strong style="color:#34d399;">${elig.map(b => esc(b.nombre)).join(', ')}</strong></div>
+                <button type="button" class="btn btn-primary" id="vu-iniciar">▶ Iniciar vuelta con estos bancos</button>
+            </div>`
+        : `<div style="background:#111827;border:1px solid #1f2937;border-radius:8px;padding:0.85rem 1rem;color:#9ca3af;">${esc(chk.motivo)}</div>`;
+
+    const abiertasHtml = abiertas.map(v => renderVueltaPanel(v)).join('');
+    const cerradasHtml = cerradas.length
+        ? `<h3 style="color:#cbd5e1;font-size:0.95rem;margin:1.25rem 0 0.5rem;">Vueltas cerradas</h3>
+           <ul style="color:#9ca3af;">${cerradas.map(v => `<li>Vuelta del ${formatDate(v.fecha)} — bancos: ${bancosDeVuelta(v).map(b => esc(b.nombre)).join(', ') || '—'} (cerrada ${v.fechaCierre ? formatDate(v.fechaCierre) : ''})</li>`).join('')}</ul>`
+        : '';
+
+    container.innerHTML = `<div class="section">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
             <h2 class="section-title" style="margin:0;">🔄 La Vuelta: ${esc(client.nombreCompleto)} ${esc(client.apellidosCompletos)}</h2>
             <button type="button" class="btn btn-secondary" id="vu-cambiar">Cambiar cliente</button>
-        </div>`;
+        </div>
+        <h3 style="color:#cbd5e1;font-size:0.95rem;margin:1rem 0 0.5rem;">Nueva vuelta</h3>
+        ${iniciarHtml}
+        ${abiertas.length ? `<h3 style="color:#cbd5e1;font-size:0.95rem;margin:1.25rem 0 0.5rem;">Vuelta(s) en curso</h3><div style="display:flex;flex-direction:column;gap:1rem;">${abiertasHtml}</div>` : ''}
+        ${cerradasHtml}
+    </div>`;
 
-    if (!abierta) {
-        const chk = canStartVuelta(client.id);
-        const cerradas = getVueltas(client.id).filter(v => v.estado === 'cerrada');
-        container.innerHTML = `<div class="section">
-            ${header}
-            <div style="margin-top:1rem;background:#111827;border:1px solid #1f2937;border-radius:8px;padding:1rem;">
-                <p style="color:#cbd5e1;margin:0 0 0.75rem;">No hay una vuelta abierta para este cliente.</p>
-                ${chk.ok
-                    ? `<button type="button" class="btn btn-primary" id="vu-iniciar">▶ Iniciar vuelta</button>`
-                    : `<div style="color:#f59e0b;font-size:0.9rem;">⚠️ No se puede iniciar: ${esc(chk.motivo)}</div>`}
-            </div>
-            ${cerradas.length ? `<h3 style="color:#cbd5e1;font-size:0.95rem;margin:1.25rem 0 0.5rem;">Vueltas cerradas</h3>
-                <ul style="color:#9ca3af;">${cerradas.map(v => `<li>Vuelta del ${formatDate(v.fecha)} — cerrada ${v.fechaCierre ? formatDate(v.fechaCierre) : ''}</li>`).join('')}</ul>` : ''}
-        </div>`;
-        container.querySelector('#vu-cambiar').addEventListener('click', () => { setActiveClient(null); renderVueltaSection(container); });
-        const iniBtn = container.querySelector('#vu-iniciar');
-        if (iniBtn) iniBtn.addEventListener('click', () => openIniciarModal(container, client.id));
-        return;
-    }
+    container.querySelector('#vu-cambiar').addEventListener('click', () => { setActiveClient(null); renderVueltaSection(container); });
+    const iniBtn = container.querySelector('#vu-iniciar');
+    if (iniBtn) iniBtn.addEventListener('click', () => openIniciarModal(container, client.id));
 
-    // Vuelta abierta
-    const bancos = bancosConTarjetas(client.id);
-    const evid = getEvidencias(abierta.id);
-    const codes = getBlockingCodes(abierta.id);
+    // Listeners por panel de vuelta abierta
+    abiertas.forEach(v => wireVueltaPanel(container, client, v));
+}
+
+function renderVueltaPanel(v) {
+    const bancos = bancosDeVuelta(v);
+    const evid = getEvidencias(v.id);
+    const codes = getBlockingCodes(v.id);
     const codesByBank = new Set(codes.map(c => c.bancoId));
+    const cerrarChk = canCloseVuelta(v);
 
     const bancosHtml = bancos.map(b => {
         const evB = evid.filter(e => e.bancoId === b.id);
@@ -90,74 +100,58 @@ function renderForClient(container, client) {
             <a href="#" class="vu-del-cd" data-id="${esc(c.id)}" style="color:#ef4444;">✕</a>
         </div>`).join('') : `<div style="color:${faltaCodigo ? '#ef4444' : '#6b7280'};font-size:0.8rem;">${faltaCodigo ? '⚠️ Falta código de bloqueo' : 'Sin códigos'}</div>`;
 
-        return `<div style="background:#111827;border:1px solid ${faltaCodigo ? '#7f1d1d' : '#1f2937'};border-radius:8px;padding:0.85rem 1rem;">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <strong style="color:#f1f5f9;">🏦 ${esc(b.nombre)}</strong>
-            </div>
-            <div style="margin-top:0.5rem;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <span style="color:#9ca3af;font-size:0.8rem;font-weight:600;">EVIDENCIAS</span>
-                    <button type="button" class="btn btn-secondary vu-add-ev" data-banco="${esc(b.id)}" style="padding:2px 8px;font-size:0.76rem;">+ Evidencia</button>
-                </div>
-                ${evRows}
-            </div>
-            <div style="margin-top:0.6rem;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <span style="color:#9ca3af;font-size:0.8rem;font-weight:600;">CÓDIGOS DE BLOQUEO</span>
-                    <button type="button" class="btn btn-secondary vu-add-cd" data-banco="${esc(b.id)}" style="padding:2px 8px;font-size:0.76rem;">+ Código</button>
-                </div>
-                ${cdRows}
-            </div>
+        return `<div style="background:#0b1220;border:1px solid ${faltaCodigo ? '#7f1d1d' : '#1f2937'};border-radius:8px;padding:0.7rem 0.85rem;">
+            <strong style="color:#f1f5f9;">🏦 ${esc(b.nombre)}</strong>
+            <div style="margin-top:0.4rem;display:flex;justify-content:space-between;align-items:center;">
+                <span style="color:#9ca3af;font-size:0.78rem;font-weight:600;">EVIDENCIAS</span>
+                <button type="button" class="btn btn-secondary vu-add-ev" data-banco="${esc(b.id)}" style="padding:2px 8px;font-size:0.74rem;">+ Evidencia</button>
+            </div>${evRows}
+            <div style="margin-top:0.5rem;display:flex;justify-content:space-between;align-items:center;">
+                <span style="color:#9ca3af;font-size:0.78rem;font-weight:600;">CÓDIGOS DE BLOQUEO</span>
+                <button type="button" class="btn btn-secondary vu-add-cd" data-banco="${esc(b.id)}" style="padding:2px 8px;font-size:0.74rem;">+ Código</button>
+            </div>${cdRows}
         </div>`;
     }).join('');
 
-    const cerrarChk = canCloseVuelta(abierta.id, client.id);
-    container.innerHTML = `<div class="section">
-        ${header}
-        <div style="margin-top:0.75rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;background:#0b1220;border:1px solid #1f2937;border-radius:8px;padding:0.6rem 1rem;">
-            <span style="color:#cbd5e1;">Vuelta abierta del <strong>${formatDate(abierta.fecha)}</strong></span>
-            <button type="button" class="btn btn-primary" id="vu-cerrar" ${cerrarChk.ok ? '' : 'disabled title="' + esc(cerrarChk.motivo) + '"'}>🔒 Cerrar vuelta</button>
+    return `<div class="vu-panel" data-vuelta="${esc(v.id)}" style="background:#111827;border:1px solid #1f2937;border-radius:8px;padding:0.85rem 1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+            <span style="color:#cbd5e1;">Vuelta del <strong>${formatDate(v.fecha)}</strong> — ${bancos.map(b => esc(b.nombre)).join(', ')}</span>
+            <button type="button" class="btn btn-primary vu-cerrar" ${cerrarChk.ok ? '' : 'disabled title="' + esc(cerrarChk.motivo) + '"'}>🔒 Cerrar vuelta</button>
         </div>
-        ${!cerrarChk.ok ? `<div style="color:#f59e0b;font-size:0.82rem;margin:0.4rem 0;">⚠️ ${esc(cerrarChk.motivo)}</div>` : ''}
-
-        <div style="margin-top:0.75rem;background:#111827;border:1px solid #1f2937;border-radius:8px;padding:0.85rem 1rem;">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <strong style="color:#f1f5f9;">📄 Denuncia</strong>
-                <button type="button" class="btn btn-secondary" id="vu-denuncia" style="padding:2px 8px;font-size:0.76rem;">Editar</button>
-            </div>
-            <div style="color:#9ca3af;font-size:0.82rem;margin-top:4px;">
-                ${abierta.denunciaFecha ? 'Fecha: ' + formatDate(abierta.denunciaFecha) : 'Sin fecha de denuncia'}
-                ${abierta.denunciaEvidencia ? ` · <a href="#" id="vu-ver-denuncia" style="color:#7c3aed;">ver evidencia</a>` : ' · sin evidencia'}
-            </div>
+        ${!cerrarChk.ok ? `<div style="color:#f59e0b;font-size:0.8rem;margin:0.3rem 0;">⚠️ ${esc(cerrarChk.motivo)}</div>` : ''}
+        <div style="margin-top:0.6rem;background:#0b1220;border:1px solid #1f2937;border-radius:8px;padding:0.5rem 0.75rem;display:flex;justify-content:space-between;align-items:center;">
+            <span style="color:#cbd5e1;font-size:0.85rem;">📄 Denuncia: ${v.denunciaFecha ? formatDate(v.denunciaFecha) : 'sin fecha'}${v.denunciaEvidencia ? ' · <a href="#" class="vu-ver-den" style="color:#7c3aed;">ver</a>' : ' · sin evidencia'}</span>
+            <button type="button" class="btn btn-secondary vu-denuncia" style="padding:2px 8px;font-size:0.74rem;">Editar</button>
         </div>
-
-        <h3 style="color:#cbd5e1;font-size:0.95rem;margin:1.25rem 0 0.5rem;">Por banco</h3>
-        <div style="display:flex;flex-direction:column;gap:0.75rem;">${bancos.length ? bancosHtml : '<div class="empty-state">El cliente no tiene tarjetas activas.</div>'}</div>
+        <div style="margin-top:0.6rem;display:flex;flex-direction:column;gap:0.5rem;">${bancos.length ? bancosHtml : '<div style="color:#9ca3af;">Esta vuelta no tiene bancos.</div>'}</div>
     </div>`;
+}
 
-    // Listeners
-    container.querySelector('#vu-cambiar').addEventListener('click', () => { setActiveClient(null); renderVueltaSection(container); });
-    const cerrarBtn = container.querySelector('#vu-cerrar');
-    if (cerrarBtn && cerrarChk.ok) cerrarBtn.addEventListener('click', async () => {
-        if (!await confirmarEliminacion('¿Cerrar la vuelta? Ya no podrás agregar evidencias ni códigos.')) return;
-        const r = closeVuelta(abierta.id, client.id);
+function wireVueltaPanel(container, client, v) {
+    const panel = container.querySelector(`.vu-panel[data-vuelta="${v.id}"]`);
+    if (!panel) return;
+    const cerrarBtn = panel.querySelector('.vu-cerrar');
+    if (cerrarBtn && !cerrarBtn.hasAttribute('disabled')) cerrarBtn.addEventListener('click', async () => {
+        if (!await confirmarEliminacion('¿Cerrar esta vuelta? Ya no podrás agregar evidencias ni códigos.')) return;
+        const r = closeVuelta(v.id);
         if (r.success) renderVueltaSection(container); else alert(r.error);
     });
-    container.querySelector('#vu-denuncia').addEventListener('click', () => openDenunciaModal(container, abierta));
-    const vd = container.querySelector('#vu-ver-denuncia');
-    if (vd) vd.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(abierta.denunciaEvidencia); });
-    container.querySelectorAll('.vu-add-ev').forEach(b => b.addEventListener('click', () => openEvidenciaModal(container, abierta.id, b.getAttribute('data-banco'))));
-    container.querySelectorAll('.vu-add-cd').forEach(b => b.addEventListener('click', () => openCodigoModal(container, abierta.id, client.id, b.getAttribute('data-banco'))));
-    container.querySelectorAll('.vu-ver').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(a.getAttribute('data-file')); }));
-    container.querySelectorAll('.vu-del-ev').forEach(a => a.addEventListener('click', async (e) => { e.preventDefault(); if (await confirmarEliminacion('¿Eliminar evidencia?')) { deleteEvidencia(a.getAttribute('data-id')); renderVueltaSection(container); } }));
-    container.querySelectorAll('.vu-del-cd').forEach(a => a.addEventListener('click', async (e) => { e.preventDefault(); if (await confirmarEliminacion('¿Eliminar código de bloqueo?')) { deleteBlockingCode(a.getAttribute('data-id')); renderVueltaSection(container); } }));
+    panel.querySelector('.vu-denuncia').addEventListener('click', () => openDenunciaModal(container, v));
+    const vd = panel.querySelector('.vu-ver-den');
+    if (vd) vd.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(v.denunciaEvidencia); });
+    panel.querySelectorAll('.vu-add-ev').forEach(b => b.addEventListener('click', () => openEvidenciaModal(container, v.id, b.getAttribute('data-banco'))));
+    panel.querySelectorAll('.vu-add-cd').forEach(b => b.addEventListener('click', () => openCodigoModal(container, v.id, client.id, b.getAttribute('data-banco'))));
+    panel.querySelectorAll('.vu-ver').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(a.getAttribute('data-file')); }));
+    panel.querySelectorAll('.vu-del-ev').forEach(a => a.addEventListener('click', async (e) => { e.preventDefault(); if (await confirmarEliminacion('¿Eliminar evidencia?')) { deleteEvidencia(a.getAttribute('data-id')); renderVueltaSection(container); } }));
+    panel.querySelectorAll('.vu-del-cd').forEach(a => a.addEventListener('click', async (e) => { e.preventDefault(); if (await confirmarEliminacion('¿Eliminar código de bloqueo?')) { deleteBlockingCode(a.getAttribute('data-id')); renderVueltaSection(container); } }));
 }
 
 function openIniciarModal(container, clientId) {
     const hoy = new Date().toISOString().split('T')[0];
     openFormModal({
         title: 'Iniciar vuelta', submitLabel: 'Iniciar',
-        html: `<div class="form-group"><label>Fecha de la vuelta *</label><input type="date" id="vu-fecha" value="${hoy}" required></div>`,
+        html: `<div class="form-group"><label>Fecha de la vuelta *</label><input type="date" id="vu-fecha" value="${hoy}" required></div>
+               <p style="color:#9ca3af;font-size:0.82rem;">Solo se incluirán los bancos con el seguro al día. Los demás podrás hacerlos en otra vuelta cuando estén pagados.</p>`,
         onSubmit: (form) => {
             const r = startVuelta(clientId, form.querySelector('#vu-fecha').value);
             if (r.success) { closeFormModal(); renderVueltaSection(container); } else showModalAlert(r.error, 'error');
@@ -174,16 +168,14 @@ function openEvidenciaModal(container, vueltaId, bancoId) {
         html: `
             <div class="form-row">
                 <div class="form-group"><label>Tipo *</label>
-                    <select id="ev-tipo">${TIPOS_EVIDENCIA.map(t => `<option value="${t.value}">${t.label}</option>`).join('')}</select>
-                </div>
+                    <select id="ev-tipo">${TIPOS_EVIDENCIA.map(t => `<option value="${t.value}">${t.label}</option>`).join('')}</select></div>
                 <div class="form-group"><label>Fecha</label><input type="date" id="ev-fecha" value="${now.toISOString().split('T')[0]}"></div>
                 <div class="form-group"><label>Hora</label><input type="time" id="ev-hora" value="${pad(now.getHours())}:${pad(now.getMinutes())}"></div>
             </div>
             <div class="form-group"><label>Concepto</label><input type="text" id="ev-concepto" placeholder="Ej: compra en tienda X / retiro S/500"></div>
             <div class="form-group"><label>Evidencia (foto/PDF)</label>
                 <input type="file" id="ev-file" accept=".pdf,.jpg,.jpeg,.png,.webp">
-                <div id="ev-status" style="font-size:0.82rem;margin-top:4px;color:#9ca3af;min-height:1.2em;"></div>
-            </div>`,
+                <div id="ev-status" style="font-size:0.82rem;margin-top:4px;color:#9ca3af;min-height:1.2em;"></div></div>`,
         onOpen: (overlay) => {
             const input = overlay.querySelector('#ev-file'), status = overlay.querySelector('#ev-status');
             input.addEventListener('change', () => {
@@ -233,8 +225,7 @@ function openDenunciaModal(container, vuelta) {
             <div class="form-group"><label>Fecha de la denuncia</label><input type="date" id="dn-fecha" value="${vuelta.denunciaFecha || ''}"></div>
             <div class="form-group"><label>Evidencia de la denuncia</label>
                 <input type="file" id="dn-file" accept=".pdf,.jpg,.jpeg,.png,.webp">
-                <div id="dn-status" style="font-size:0.82rem;margin-top:4px;color:#9ca3af;min-height:1.2em;">${vuelta.denunciaEvidencia ? '✓ Ya hay una evidencia (sube otra para reemplazar)' : ''}</div>
-            </div>`,
+                <div id="dn-status" style="font-size:0.82rem;margin-top:4px;color:#9ca3af;min-height:1.2em;">${vuelta.denunciaEvidencia ? '✓ Ya hay una evidencia (sube otra para reemplazar)' : ''}</div></div>`,
         onOpen: (overlay) => {
             const input = overlay.querySelector('#dn-file'), status = overlay.querySelector('#dn-status');
             input.addEventListener('change', () => {
