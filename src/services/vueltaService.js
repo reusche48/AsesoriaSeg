@@ -159,6 +159,19 @@ export function addBlockingCode(vueltaId, data) {
     });
     return { success: true, codigo: c };
 }
+export function updateBlockingCode(id, data) {
+    if (!blockingCodeRepository.getById(id)) return { success: false, error: 'Código no encontrado.' };
+    if (!data.codigo || !data.codigo.trim()) return { success: false, error: 'Código de bloqueo requerido.' };
+    const c = blockingCodeRepository.update(id, {
+        codigo: data.codigo.trim(),
+        tarjetaIds: Array.isArray(data.tarjetaIds) ? data.tarjetaIds.join(',') : (data.tarjetaIds || null),
+        observacion: (data.observacion || '').trim() || null,
+        fecha: data.fecha || null,
+        hora: data.hora || null,
+        evidencia: data.evidencia || null,
+    });
+    return { success: true, codigo: c };
+}
 export function deleteBlockingCode(id) { blockingCodeRepository.delete(id); }
 
 /** ¿Se puede cerrar? Cada banco de la vuelta debe tener al menos un código de bloqueo. */

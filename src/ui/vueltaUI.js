@@ -4,7 +4,7 @@ import { bankRepository } from '../repositories/bankRepository.js';
 import {
     getOpenVueltas, getVueltas, getAllOpenVueltas, getRecentVueltas, eligibleBanks, canStartVuelta, startVuelta, updateVuelta,
     getEvidencias, addEvidencia, updateEvidencia, deleteEvidencia,
-    getBlockingCodes, addBlockingCode, deleteBlockingCode,
+    getBlockingCodes, addBlockingCode, updateBlockingCode, deleteBlockingCode,
     canCloseVuelta, closeVuelta, reopenVuelta, ensureSiniestroForVuelta, bancosDeVuelta, tarjetasDeBanco, TIPOS_EVIDENCIA,
     deleteVuelta, puedeEliminarVuelta, removeBancoFromVuelta, addBancoToVuelta,
 } from '../services/vueltaService.js';
@@ -232,7 +232,7 @@ function renderVueltaPanel(v) {
         const cdRows = cdB.length ? cdB.map(c => `<div style="display:flex;align-items:center;gap:0.55rem;font-size:0.82rem;color:#cbd5e1;padding:3px 0;">
             ${c.evidencia ? miniatura(c.evidencia) : '<span style="width:38px;flex:0 0 auto;text-align:center;">🔒</span>'}
             <span style="flex:1;min-width:0;"><strong>${esc(c.codigo)}</strong>${c.observacion ? ' — ' + esc(c.observacion) : ''}${c.fecha ? ' · ' + formatDate(c.fecha) : ''}${c.hora ? ' ' + esc(c.hora) : ''}</span>
-            <span style="white-space:nowrap;">${c.evidencia ? `<a href="#" class="vu-ver" data-file="${esc(c.evidencia)}" style="color:#7c3aed;">ver</a> ` : ''}<a href="#" class="vu-del-cd" data-id="${esc(c.id)}" style="color:#ef4444;">✕</a></span>
+            <span style="white-space:nowrap;">${c.evidencia ? `<a href="#" class="vu-ver" data-file="${esc(c.evidencia)}" style="color:#7c3aed;">ver</a> ` : ''}<a href="#" class="vu-edit-cd" data-id="${esc(c.id)}" style="color:#60a5fa;">✏️</a> <a href="#" class="vu-del-cd" data-id="${esc(c.id)}" style="color:#ef4444;">✕</a></span>
         </div>`).join('') : `<div style="color:${faltaCodigo ? '#ef4444' : '#6b7280'};font-size:0.8rem;">${faltaCodigo ? '⚠️ Falta código de bloqueo' : 'Sin códigos'}</div>`;
 
         const bancoVacio = evB.length === 0 && cdB.length === 0;
@@ -290,6 +290,11 @@ function wireVueltaPanel(container, client, v) {
         if (ev) openEvidenciaModal(container, v.id, ev.bancoId, ev);
     }));
     panel.querySelectorAll('.vu-del-ev').forEach(a => a.addEventListener('click', async (e) => { e.preventDefault(); if (await confirmarEliminacion('¿Eliminar evidencia?')) { deleteEvidencia(a.getAttribute('data-id')); paint(container); } }));
+    panel.querySelectorAll('.vu-edit-cd').forEach(a => a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const cd = getBlockingCodes(v.id).find(x => x.id === a.getAttribute('data-id'));
+        if (cd) openCodigoModal(container, v.id, client.id, cd.bancoId, cd);
+    }));
     panel.querySelectorAll('.vu-del-cd').forEach(a => a.addEventListener('click', async (e) => { e.preventDefault(); if (await confirmarEliminacion('¿Eliminar código de bloqueo?')) { deleteBlockingCode(a.getAttribute('data-id')); paint(container); } }));
     panel.querySelectorAll('.vu-del-banco').forEach(btn => btn.addEventListener('click', async () => {
         const bancoNombre = bancosDeVuelta(v).find(b => b.id === btn.getAttribute('data-banco'))?.nombre || 'este banco';
@@ -357,45 +362,51 @@ function openEvidenciaModal(container, vueltaId, bancoId, ev = null) {
     });
 }
 
-function openCodigoModal(container, vueltaId, clientId, bancoId) {
+function openCodigoModal(container, vueltaId, clientId, bancoId, cd = null) {
+    const editar = !!cd;
     const banco = bankRepository.getById(bancoId)?.nombre || '';
     const cards = tarjetasDeBanco(clientId, bancoId);
     const now = new Date(); const pad = n => String(n).padStart(2, '0');
-    let evidenceUrl = null, uploading = false;
+    // En edición: parte de la evidencia y tarjetas ya guardadas.
+    let evidenceUrl = editar ? (cd.evidencia || null) : null, uploading = false;
+    const tarjetasGuardadas = editar ? new Set(String(cd.tarjetaIds || '').split(',').filter(Boolean)) : null;
+    const fechaVal = editar ? (cd.fecha || '') : now.toISOString().split('T')[0];
+    const horaVal = editar ? (cd.hora || '') : `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     openFormModal({
-        title: `Código de bloqueo — ${banco}`, submitLabel: 'Agregar',
+        title: `Código de bloqueo — ${banco}`, submitLabel: editar ? 'Guardar' : 'Agregar',
         html: `
-            <div class="form-group"><label>Código de bloqueo *</label><input type="text" id="cd-codigo" required placeholder="Código que dio el banco"></div>
+            <div class="form-group"><label>Código de bloqueo *</label><input type="text" id="cd-codigo" required placeholder="Código que dio el banco" value="${editar ? esc(cd.codigo || '') : ''}"></div>
             <div class="form-row">
-                <div class="form-group"><label>Fecha</label><input type="date" id="cd-fecha" value="${now.toISOString().split('T')[0]}"></div>
-                <div class="form-group"><label>Hora</label><input type="time" id="cd-hora" value="${pad(now.getHours())}:${pad(now.getMinutes())}"></div>
+                <div class="form-group"><label>Fecha</label><input type="date" id="cd-fecha" value="${esc(fechaVal)}"></div>
+                <div class="form-group"><label>Hora</label><input type="time" id="cd-hora" value="${esc(horaVal)}"></div>
             </div>
             ${cards.length ? `<div class="form-group"><label>Tarjetas que cubre</label>
                 <div style="display:flex;flex-direction:column;gap:0.35rem;">
-                ${cards.map(c => `<label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal;font-size:0.9rem;cursor:pointer;"><input type="checkbox" class="cd-card" value="${esc(c.id)}" checked style="width:auto;margin:0;flex:0 0 auto;"><span>${esc(c.numero || c.id)}${c.moneda ? ' (' + esc(c.moneda) + ')' : ''}</span></label>`).join('')}
+                ${cards.map(c => `<label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal;font-size:0.9rem;cursor:pointer;"><input type="checkbox" class="cd-card" value="${esc(c.id)}" ${(editar ? tarjetasGuardadas.has(c.id) : true) ? 'checked' : ''} style="width:auto;margin:0;flex:0 0 auto;"><span>${esc(c.numero || c.id)}${c.moneda ? ' (' + esc(c.moneda) + ')' : ''}</span></label>`).join('')}
                 </div></div>` : ''}
-            <div class="form-group"><label>Observación</label><input type="text" id="cd-obs" placeholder="Ej: bloquea ambas tarjetas"></div>
+            <div class="form-group"><label>Observación</label><input type="text" id="cd-obs" placeholder="Ej: bloquea ambas tarjetas" value="${editar ? esc(cd.observacion || '') : ''}"></div>
             <div class="form-group"><label>Evidencia (foto/PDF — opcional)</label>
                 <input type="file" id="cd-file" accept=".pdf,.jpg,.jpeg,.png,.webp">
-                <div id="cd-status" style="font-size:0.82rem;margin-top:4px;color:#9ca3af;min-height:1.2em;"></div></div>`,
+                <div id="cd-status" style="font-size:0.82rem;margin-top:4px;color:#9ca3af;min-height:1.2em;">${editar && cd.evidencia ? '✓ Ya hay una evidencia (sube otra para reemplazar)' : ''}</div></div>`,
         onOpen: (overlay) => {
             const input = overlay.querySelector('#cd-file'), status = overlay.querySelector('#cd-status');
             input.addEventListener('change', () => {
-                const file = input.files[0]; if (!file) { evidenceUrl = null; status.textContent = ''; return; }
+                const file = input.files[0]; if (!file) { status.textContent = ''; return; }
                 uploading = true; status.textContent = '⏳ Subiendo...'; status.style.color = '#f59e0b';
                 uploadFile(file).then(u => { evidenceUrl = u; uploading = false; status.textContent = '✓ Subido'; status.style.color = '#10b981'; })
-                    .catch(() => { evidenceUrl = null; uploading = false; input.value = ''; status.textContent = 'Error al subir'; status.style.color = '#ef4444'; });
+                    .catch(() => { uploading = false; input.value = ''; status.textContent = 'Error al subir'; status.style.color = '#ef4444'; });
             });
         },
         onSubmit: (form) => {
             if (uploading) { showModalAlert('Espere a que suba el archivo.', 'error'); return; }
             const tarjetaIds = [...form.querySelectorAll('.cd-card:checked')].map(c => c.value);
-            const r = addBlockingCode(vueltaId, {
+            const datos = {
                 bancoId, codigo: form.querySelector('#cd-codigo').value, tarjetaIds,
                 observacion: form.querySelector('#cd-obs').value,
                 fecha: form.querySelector('#cd-fecha').value, hora: form.querySelector('#cd-hora').value,
                 evidencia: evidenceUrl,
-            });
+            };
+            const r = editar ? updateBlockingCode(cd.id, datos) : addBlockingCode(vueltaId, datos);
             if (r.success) { closeFormModal(); paint(container); } else showModalAlert(r.error, 'error');
         },
     });
