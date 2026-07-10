@@ -9,7 +9,7 @@ import { openFormModal, closeFormModal, showModalAlert } from './modalHelper.js'
 import { getNextActionsForClient } from '../services/nextActionService.js';
 import { markStepComplete, reopenStep, esOpcional } from '../services/claimStepService.js';
 import { confirmarEliminacion } from '../utils.js';
-import { setEventPreselectClaim } from './claimEventUI.js';
+import { setEventPreselectClaim, setEventPreselectEvent } from './claimEventUI.js';
 import { openStepEventModal } from './claimEventModal.js';
 import { startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
 
@@ -140,11 +140,15 @@ function renderForClient(container, client) {
         a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openFileViewer(a.getAttribute('data-file')); });
     });
 
-    // Detalle completo del evento al tocar la línea
+    // Al tocar la línea del evento: ir al módulo Eventos y abrirlo en edición.
     container.querySelectorAll('.guia-ev-det').forEach(el => {
         el.addEventListener('click', (e) => {
-            if (e.target.closest('.guia-ev-ver')) return; // el 📎 abre la evidencia, no el detalle
-            openEventoDetalle(el.getAttribute('data-ev'));
+            if (e.target.closest('.guia-ev-ver')) return; // el 📎 abre la evidencia, no navega
+            const evId = el.getAttribute('data-ev');
+            const ev = claimEventRepository.getAll().find(x => x.id === evId);
+            setEventPreselectEvent(evId);
+            if (ev) setEventPreselectClaim(ev.reclamoId);
+            window.location.hash = '#eventos';
         });
     });
 
@@ -242,12 +246,12 @@ function renderBancoCard(b) {
                         if (!evsPaso.length) return '';
                         return `<div style="margin-top:6px;border-top:1px dashed #1f2937;padding-top:5px;">
                             <div style="font-size:0.72rem;color:#64748b;font-weight:700;margin-bottom:2px;">REGISTRADO EN ESTE PASO (${evsPaso.length})</div>
-                            ${evsPaso.slice(0, 5).map(e => `<div class="guia-ev-det" data-ev="${esc(e.id)}" title="Toca para ver el detalle completo" style="font-size:0.78rem;color:#cbd5e1;padding:2px 0;word-break:break-word;cursor:pointer;">
+                            ${evsPaso.slice(0, 5).map(e => `<div class="guia-ev-det" data-ev="${esc(e.id)}" title="Toca para abrir este evento en Eventos y modificarlo" style="font-size:0.78rem;color:#cbd5e1;padding:2px 0;word-break:break-word;cursor:pointer;">
                                 • ${formatDateTime(e.fecha)} — ${esc((e.observacion || e.descripcion || '').slice(0, 90))}${(e.observacion || '').length > 90 ? '…' : ''}
                                 ${e.evidencia ? ` <a href="#" class="guia-ev-ver" data-file="${esc(e.evidencia)}" style="color:#7c3aed;white-space:nowrap;">📎 ver</a>` : ''}
                                 ${(e.archivos || '').split(',').filter(Boolean).length ? ` <span style="color:#64748b;white-space:nowrap;" title="Archivos adjuntos">📎${(e.archivos || '').split(',').filter(Boolean).length}</span>` : ''}
                                 ${plazoBadge(e)}
-                                <span style="color:#4b5563;font-size:0.72rem;"> ⊕ detalle</span>
+                                <span style="color:#4b5563;font-size:0.72rem;"> ✏️ abrir en Eventos</span>
                             </div>`).join('')}
                             ${evsPaso.length > 5 ? `<div style="font-size:0.74rem;color:#6b7280;">… y ${evsPaso.length - 5} más en "Ver historial"</div>` : ''}
                         </div>`;
@@ -314,53 +318,6 @@ function plazoBadge(e) {
     if (d < 0) return `<span style="color:#ef4444;">· 🔴 vencido hace ${-d} día(s)</span>`;
     if (d === 0) return '<span style="color:#f59e0b;">· 🟠 vence hoy</span>';
     return `<span style="color:#3b82f6;">· vence en ${d} día(s)</span>`;
-}
-
-/** Popup de solo lectura con el detalle completo de un evento registrado en un paso. */
-function openEventoDetalle(evId) {
-    const all = claimEventRepository.getAll();
-    const ev = all.find(e => e.id === evId);
-    if (!ev) return;
-    const respondido = all.some(x => x.eventoOrigenId === ev.id);
-    const prev = document.querySelector('.audit-popup-overlay');
-    if (prev) prev.remove();
-
-    let plazoHtml = '<span style="color:#9ca3af;">Sin plazo (informativo)</span>';
-    if (ev.fechaVencimiento) {
-        const tipo = ev.tipoDias === 'laborables' ? 'laborables' : 'naturales';
-        plazoHtml = `${ev.diasEspera || '?'} día(s) ${tipo} — vence ${formatDateTime(ev.fechaVencimiento + 'T00:00:00').split(' ')[0]} ${plazoBadge({ ...ev, respondido })}`;
-    }
-
-    const row = (label, html) => `<div style="display:flex;gap:0.6rem;padding:0.3rem 0;border-bottom:1px solid #1f2937;">
-        <span style="flex:0 0 110px;color:#9ca3af;font-size:0.82rem;">${label}</span>
-        <div style="flex:1;color:#f1f5f9;font-size:0.88rem;word-break:break-word;">${html}</div>
-    </div>`;
-
-    const archivos = (ev.archivos || '').split(',').map(s => s.trim()).filter(Boolean);
-    const archivosHtml = archivos.length
-        ? archivos.map((u, i) => `<a href="#" class="evdet-arch" data-file="${esc(u)}" style="color:#7c3aed;display:inline-block;margin:0 12px 4px 0;">📎 Archivo ${i + 1}</a>`).join('')
-        : '<span style="color:#9ca3af;">Ninguno</span>';
-
-    const overlay = document.createElement('div');
-    overlay.className = 'audit-popup-overlay';
-    overlay.innerHTML = `
-        <div class="audit-popup" style="min-width:340px;max-width:560px;">
-            <button type="button" class="audit-close">&times;</button>
-            <h3>📋 Detalle del evento</h3>
-            ${row('Fecha y hora', formatDateTime(ev.fecha))}
-            ${row('Descripción', esc(ev.descripcion || '—'))}
-            ${row('Observación', `<span style="white-space:pre-wrap;">${esc(ev.observacion || '—')}</span>`)}
-            ${row('Plazo', plazoHtml)}
-            ${row('Evidencia', ev.evidencia ? `<a href="#" id="evdet-ver" style="color:#7c3aed;">📎 Ver evidencia adjunta</a>` : '<span style="color:#9ca3af;">Sin evidencia</span>')}
-            ${row('Archivos adjuntos', archivosHtml)}
-            ${row('Registrado por', esc(ev.creadoPor || '—') + (ev.fechaRegistro || ev.fechaCreacion ? ` <span style="color:#9ca3af;font-size:0.8rem;">· ${formatDateTime(ev.fechaRegistro || ev.fechaCreacion)}</span>` : ''))}
-        </div>`;
-    document.body.appendChild(overlay);
-    overlay.querySelector('.audit-close').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-    const verBtn = overlay.querySelector('#evdet-ver');
-    if (verBtn) verBtn.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(ev.evidencia); });
-    overlay.querySelectorAll('.evdet-arch').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(a.getAttribute('data-file')); }));
 }
 
 function formatDateTime(str) {

@@ -36,6 +36,19 @@ export function clearEventFocusClaim() {
     try { sessionStorage.removeItem(FOCUS_KEY); } catch (e) { /* ignore */ }
 }
 
+const FOCUS_EVENT_KEY = 'eventos_focus_event';
+/**
+ * Fija un evento para que al entrar a la sección Eventos se abra directamente
+ * en el modal de edición (ej: al tocar un evento desde la Guía).
+ * @param {string} eventId
+ */
+export function setEventPreselectEvent(eventId) {
+    try {
+        if (eventId) sessionStorage.setItem(FOCUS_EVENT_KEY, eventId);
+        else sessionStorage.removeItem(FOCUS_EVENT_KEY);
+    } catch (e) { /* ignore */ }
+}
+
 export function renderClaimEventSection(container) {
     selectedEventEvidenceDataUrl = null;
     eventFilterDesde = null;
@@ -99,6 +112,13 @@ export function renderClaimEventSection(container) {
             container.querySelector('#event-claim-search').value = info.text;
             container.querySelector('#event-claim-id').value = claim.id;
             refreshEventList(container, claim.id);
+            // Si además viene un evento enfocado (click desde la Guía), abrirlo en edición.
+            let focusEventId = null;
+            try { focusEventId = sessionStorage.getItem(FOCUS_EVENT_KEY); sessionStorage.removeItem(FOCUS_EVENT_KEY); } catch (e) { /* ignore */ }
+            if (focusEventId) {
+                const ev = claimEventRepository.getById(focusEventId);
+                if (ev) openEventModal(container, ev);
+            }
         } else {
             showLatestEvents(container);
         }
