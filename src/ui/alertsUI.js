@@ -3,8 +3,12 @@ import { claimRepository } from '../repositories/claimRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
-import { openFormModal, closeFormModal, clearModalErrors } from './modalHelper.js';
-import { uploadFile, getCollection } from '../storage.js';
+import { openFormModal, closeFormModal, clearModalErrors, showModalAlert } from './modalHelper.js';
+import { uploadFile, getCollection, isAdminUser } from '../storage.js';
+import { CONFIG_KEYS, DEFAULT_DIAS_DORMIDO, getConfigNumber, setConfigValue } from '../services/configService.js';
+import { getAtenderHoy } from '../services/attentionService.js';
+import { setActiveClient, getActiveClient, onActiveClientChange } from '../state/clientContext.js';
+import { advanceRepository } from '../repositories/advanceRepository.js';
 import { setEventPreselectClaim } from './claimEventUI.js';
 import { startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
 
@@ -15,7 +19,11 @@ let alertActiveTab = 'vencimientos';
 function alertsSignature() {
     const ev = getCollection('claimEvents').length;
     const cl = getCollection('claims').map(c => c.id + (c.estado || '')).join();
-    return `e${ev}|c${cl}`;
+    const st = getCollection('claimSteps').map(s => s.id + (s.estado || '')).join();
+    const cfg = getCollection('config').map(c => c.id + ':' + c.valor).join();
+    const vu = getCollection('vueltas').map(v => v.id + (v.estado || '') + (v.denunciaEvidencia ? 'd' : '')).join();
+    const pg = getCollection('payments').map(p => p.id + (p.fecha || '')).join();
+    return `e${ev}|c${cl}|s${st}|k${cfg}|v${vu}|p${pg}`;
 }
 
 /** Navega a la sección Eventos mostrando todos los eventos del reclamo. */
@@ -28,6 +36,38 @@ function verHistorialEnEventos(claimId) {
 let _alertEvidenceUrl = null;
 // Filtro de cliente activo en la sección Alertas (se conserva entre re-renders)
 let alertClientFilter = '';
+// Último cliente activo (topbar) aplicado como filtro — para aplicarlo UNA sola vez
+// por selección (si el usuario borra el filtro, los re-renders no lo re-imponen).
+let lastAppliedActiveClientId = null;
+
+// Re-render inmediato de Alertas cuando cambia el cliente activo (registro único).
+let activeClientListenerOn = false;
+let alertsContainerRef = null;
+function registerActiveClientListener(container) {
+    alertsContainerRef = container;
+    if (activeClientListenerOn) return;
+    activeClientListenerOn = true;
+    onActiveClientChange(() => {
+        if (!location.hash.startsWith('#alertas') || !alertsContainerRef) return;
+        if (document.querySelector('.form-modal-overlay')) return; // no interrumpir un modal
+        renderAlertsSection(alertsContainerRef);
+    });
+}
+
+/** Sincroniza el filtro con el cliente activo del topbar (una vez por selección). */
+function syncFilterWithActiveClient() {
+    const active = getActiveClient();
+    if (active) {
+        if (active.id !== lastAppliedActiveClientId) {
+            alertClientFilter = `${active.nombreCompleto || ''} ${active.apellidosCompletos || ''}`.trim();
+            lastAppliedActiveClientId = active.id;
+        }
+    } else if (lastAppliedActiveClientId !== null) {
+        // Se quitó el cliente activo (✕): volver a mostrar todo
+        alertClientFilter = '';
+        lastAppliedActiveClientId = null;
+    }
+}
 
 /** Nombre completo del cliente de un reclamo (objeto claim). */
 function clientNameForClaim(claim) {
@@ -51,6 +91,8 @@ function matchesClientFilter(name) {
 
 export function renderAlertsSection(container) {
     stopAutoRefresh();
+    syncFilterWithActiveClient();
+    registerActiveClientListener(container);
     const allEvents = getEventsWithDeadline();
     const allInactive = getClaimsWithoutActivity();
     const tabAct = (t) => alertActiveTab === t;
@@ -64,7 +106,10 @@ export function renderAlertsSection(container) {
 
     container.innerHTML = `
         <div class="section">
-            <h2 class="section-title">⚠️ Alertas</h2>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+                <h2 class="section-title" style="margin:0;">⚠️ Alertas</h2>
+                ${isAdminUser() ? `<button type="button" class="btn btn-secondary" id="alert-config-btn" title="Configurar umbral de casos dormidos">⚙</button>` : ''}
+            </div>
             <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem;">
                 <div class="form-group" style="flex:1;min-width:240px;margin:0;">
                     <label for="alert-client-search">Buscar por cliente</label>
@@ -77,6 +122,8 @@ export function renderAlertsSection(container) {
                 <button type="button" class="btn btn-secondary" id="alert-clear-filter" title="Limpiar filtro">✖ Limpiar</button>
             </div>
             <div id="alert-filter-hint" style="font-size:0.82rem;color:#9ca3af;margin-bottom:0.75rem;"></div>
+            <div id="alert-kpis" style="margin-bottom:1rem;"></div>
+            <div id="atender-hoy" style="margin-bottom:1rem;"></div>
             <div class="tab-bar" style="display:flex;gap:8px;margin-bottom:1rem;border-bottom:2px solid #1f2937;padding-bottom:0;">
                 <button class="tab-btn ${tabAct('vencimientos') ? 'active' : ''}" data-tab="vencimientos" style="${tabStyle('vencimientos')}">
                     Vencimientos de Plazos <span id="tab-badge-venc"></span>
@@ -94,6 +141,8 @@ export function renderAlertsSection(container) {
         const events = allEvents.filter(e => matchesClientFilter(clientNameForClaimId(e.reclamoId)));
         const inactive = allInactive.filter(i => matchesClientFilter(clientNameForClaim(i)));
 
+        renderKpiStrip(container); // resumen global: se oculta si hay un cliente filtrado
+        renderAtenderHoy(container);
         renderVencimientos(container, events);
         renderInactividad(container, inactive);
 
@@ -113,6 +162,36 @@ export function renderAlertsSection(container) {
             ? `Filtrando por <strong style="color:#f1f5f9;">"${esc(alertClientFilter.trim())}"</strong> — ${events.length} vencimiento(s) y ${inactive.length} reclamo(s) sin actividad.`
             : '';
     }
+
+    // ⚙ Configuración del umbral de "caso dormido" (solo admin)
+    const cfgBtn = container.querySelector('#alert-config-btn');
+    if (cfgBtn) cfgBtn.addEventListener('click', () => {
+        const actual = getConfigNumber(CONFIG_KEYS.DIAS_DORMIDO, DEFAULT_DIAS_DORMIDO);
+        openFormModal({
+            title: '⚙ Configuración de alertas', submitLabel: 'Guardar',
+            html: `
+                <div class="form-group">
+                    <label>Días sin actividad para considerar un caso "dormido" *</label>
+                    <input type="number" id="cfg-dias-dormido" min="1" step="1" value="${actual}" required>
+                    <div style="font-size:0.8rem;color:#9ca3af;margin-top:4px;">
+                        Un reclamo activo sin ningún evento en este número de días aparecerá en 🔥 Atender hoy.
+                        Se aplica a todos los usuarios y dispositivos.
+                    </div>
+                </div>`,
+            onSubmit: async (form) => {
+                const n = parseInt(form.querySelector('#cfg-dias-dormido').value);
+                if (!Number.isFinite(n) || n < 1) { showModalAlert('Ingrese un número de días válido (mínimo 1).', 'error'); return; }
+                try {
+                    await setConfigValue(CONFIG_KEYS.DIAS_DORMIDO, n);
+                } catch (e) {
+                    showModalAlert('No se pudo guardar en el servidor. Intente de nuevo.', 'error');
+                    return;
+                }
+                closeFormModal();
+                renderAlertsSection(container);
+            },
+        });
+    });
 
     // Buscador de cliente
     const searchInput = container.querySelector('#alert-client-search');
@@ -144,14 +223,131 @@ export function renderAlertsSection(container) {
         });
     });
 
-    applyFilterAndRender();
+    applyFilterAndRender(); // incluye renderKpiStrip (se oculta si hay filtro activo)
 
     // Auto-refresco: ver en vivo nuevos eventos/avances de otros dispositivos.
     // No re-pinta si estás escribiendo en el buscador.
-    startAutoRefresh('#alertas', ['claims', 'claimEvents', 'incidents'], alertsSignature, () => {
+    startAutoRefresh('#alertas', ['claims', 'claimEvents', 'incidents', 'claimSteps', 'config', 'vueltas', 'payments'], alertsSignature, () => {
         if (document.activeElement && document.activeElement.id === 'alert-client-search') return;
         renderAlertsSection(container);
     }, 8000);
+}
+
+// ──────────────────────────────────────────────
+// Fila de KPIs (antes el Dashboard) — resumen global, no filtrado por cliente
+// ──────────────────────────────────────────────
+function renderKpiStrip(container) {
+    const box = container.querySelector('#alert-kpis');
+    if (!box) return;
+    // Es un resumen GLOBAL (todos los clientes). Con un cliente filtrado estos totales
+    // confunden, así que se ocultan; reaparecen al quitar el filtro (ver todos).
+    if (alertClientFilter.trim()) { box.innerHTML = ''; box.style.display = 'none'; return; }
+    box.style.display = '';
+    const clientes = clientRepository.getAll().length;
+    const claims = claimRepository.getAll();
+    const activos = claims.filter(c => c.estado !== 'Culminado').length;
+    const culminados = claims.filter(c => c.estado === 'Culminado').length;
+    const montoProceso = claims.filter(c => c.estado !== 'Culminado')
+        .reduce((s, c) => s + (Number(c.montoTotal) || 0), 0);
+    const adelantos = advanceRepository.getAll().reduce((s, a) => s + (Number(a.montoSoles) || 0), 0);
+    const money = n => 'S/ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const kpi = (icon, valor, label, color) => `
+        <div style="flex:1;min-width:130px;background:#111827;border:1px solid #1f2937;border-radius:10px;padding:0.6rem 0.85rem;">
+            <div style="font-size:0.78rem;color:#9ca3af;">${icon} ${label}</div>
+            <div style="font-size:1.3rem;font-weight:800;color:${color};margin-top:2px;">${valor}</div>
+        </div>`;
+
+    box.innerHTML = `<div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+        ${kpi('👤', clientes, 'Clientes', '#f1f5f9')}
+        ${kpi('📑', activos, 'Reclamos activos', '#60a5fa')}
+        ${kpi('💰', money(montoProceso), 'Monto en proceso', '#34d399')}
+        ${kpi('✅', culminados, 'Reclamos culminados', '#a7f3d0')}
+        ${kpi('💵', money(adelantos), 'Adelantos entregados', '#c084fc')}
+    </div>`;
+}
+
+// ──────────────────────────────────────────────
+// Bloque prioritario: 🔥 Atender hoy
+// ──────────────────────────────────────────────
+const SEV_CFG = [
+    { badge: '🔴 Vencido',    color: '#ef4444', diasTxt: d => `${d} día(s) vencido` },
+    { badge: '🟠 Vence hoy',  color: '#f59e0b', diasTxt: () => 'vence hoy' },
+    { badge: '📄 Denuncia',   color: '#c084fc', diasTxt: d => `cerrada hace ${d} día(s)` },
+    { badge: '💤 Dormido',    color: '#60a5fa', diasTxt: d => `${d} día(s) sin actividad` },
+    { badge: '📋 Por hacer',  color: '#818cf8', diasTxt: d => `vence en ${d} día(s)` },
+    { badge: '💳 Pago',       color: '#fbbf24', diasTxt: d => (d == null ? 'sin pago registrado' : `vencido hace ${d} día(s)`) },
+    { badge: '⚖️ Cuadre',     color: '#fb923c', diasTxt: () => 'pendiente de cuadrar' },
+];
+
+function renderAtenderHoy(container) {
+    const box = container.querySelector('#atender-hoy');
+    if (!box) return;
+    const { items, umbral } = getAtenderHoy();
+    const filtered = items.filter(i => matchesClientFilter(i.clienteNombre));
+    const hayVencidos = filtered.some(i => i.severidad === 0);
+
+    if (filtered.length === 0) {
+        box.innerHTML = `<div style="background:#111827;border:1px solid #065f46;border-radius:10px;padding:0.8rem 1rem;color:#34d399;">
+            ✅ Nada urgente por atender hoy. <span style="color:#6b7280;font-size:0.8rem;">(dormido = ${umbral}+ días sin actividad)</span></div>`;
+        return;
+    }
+
+    const rows = filtered.map((it, idx) => {
+        const cfg = SEV_CFG[it.severidad] || SEV_CFG[3];
+        const btns = it.tipo === 'cuadre'
+            ? `<button type="button" class="btn btn-primary ah-cuadre-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">Ir a Cuadre</button>`
+            : it.tipo === 'pago'
+            ? `<button type="button" class="btn btn-primary ah-pago-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">Ir a Pagos</button>`
+            : it.vueltaId
+            ? `<button type="button" class="btn btn-primary ah-vuelta-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">Subir denuncia</button>`
+            : [
+                `<button type="button" class="btn btn-primary ah-guia-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">Ir a Guía</button>`,
+                it.eventoId
+                    ? `<button type="button" class="btn btn-secondary ah-seg-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">+ Seguimiento</button>`
+                    : `<button type="button" class="btn btn-secondary ah-ev-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">+ Evento</button>`,
+            ].join('');
+        return `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.75rem;border-top:1px solid #1f2937;flex-wrap:wrap;">
+            <span style="color:${cfg.color};font-size:0.78rem;font-weight:700;white-space:nowrap;flex:0 0 92px;">${cfg.badge}</span>
+            <div style="flex:1;min-width:180px;">
+                <div style="color:#f1f5f9;">${esc(it.clienteNombre)} <span style="color:#9ca3af;">· ${esc(it.bancoNombre)}</span></div>
+                <div style="font-size:0.8rem;color:${cfg.color};">${esc(it.queHacer)} <span style="color:#6b7280;">· ${cfg.diasTxt(it.dias)}</span></div>
+            </div>
+            <div style="display:flex;gap:4px;">${btns}</div>
+        </div>`;
+    }).join('');
+
+    box.innerHTML = `<div style="background:#111827;border:1.5px solid ${hayVencidos ? '#7f1d1d' : '#7c3aed'};border-radius:10px;overflow:hidden;">
+        <div style="padding:0.6rem 0.85rem;display:flex;justify-content:space-between;align-items:center;background:${hayVencidos ? '#1f0a0a' : '#160f26'};">
+            <strong style="color:#f1f5f9;">🔥 Atender hoy (${filtered.length})</strong>
+            <span style="color:#6b7280;font-size:0.78rem;">dormido = ${umbral}+ días sin actividad</span>
+        </div>
+        ${rows}
+    </div>`;
+
+    box.querySelectorAll('.ah-guia-btn').forEach(btn => btn.addEventListener('click', () => {
+        const it = filtered[Number(btn.getAttribute('data-idx'))];
+        if (it?.clienteId) { setActiveClient(it.clienteId); window.location.hash = '#guia'; }
+    }));
+    box.querySelectorAll('.ah-vuelta-btn').forEach(btn => btn.addEventListener('click', () => {
+        const it = filtered[Number(btn.getAttribute('data-idx'))];
+        if (it?.clienteId) { setActiveClient(it.clienteId); window.location.hash = '#vuelta'; }
+    }));
+    box.querySelectorAll('.ah-pago-btn').forEach(btn => btn.addEventListener('click', () => {
+        const it = filtered[Number(btn.getAttribute('data-idx'))];
+        if (it?.clienteId) { setActiveClient(it.clienteId); window.location.hash = '#pagos'; }
+    }));
+    box.querySelectorAll('.ah-cuadre-btn').forEach(btn => btn.addEventListener('click', () => {
+        window.location.hash = '#cuadre';
+    }));
+    box.querySelectorAll('.ah-seg-btn').forEach(btn => btn.addEventListener('click', () => {
+        const it = filtered[Number(btn.getAttribute('data-idx'))];
+        if (it) openClaimEventFormModal(container, it.claimId, it.eventoId);
+    }));
+    box.querySelectorAll('.ah-ev-btn').forEach(btn => btn.addEventListener('click', () => {
+        const it = filtered[Number(btn.getAttribute('data-idx'))];
+        if (it) openClaimEventFormModal(container, it.claimId, null);
+    }));
 }
 
 // ──────────────────────────────────────────────

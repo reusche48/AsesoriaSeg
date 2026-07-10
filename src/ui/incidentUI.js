@@ -1,4 +1,6 @@
-import { createIncident, updateIncident, addIncidentBank, getIncidentBanks, deleteClaim } from '../services/incidentService.js';
+import { createIncident, updateIncident, addIncidentBank, getIncidentBanks, deleteClaim, deleteIncidentCascade } from '../services/incidentService.js';
+import { claimRepository } from '../repositories/claimRepository.js';
+import { isAdminUser } from '../storage.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
@@ -7,6 +9,7 @@ import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from 
 import { uploadFile } from '../storage.js';
 import { confirmarEliminacion, handleFileUpload } from '../utils.js';
 import { getActiveClientId } from '../state/clientContext.js';
+import { autoCreateClaimsFromVueltas, getVueltas, bancosDeVuelta } from '../services/vueltaService.js';
 
 /**
  * Módulo UI para registro de siniestros con denuncia policial.
@@ -30,8 +33,8 @@ export function renderIncidentSection(container) {
         <div class="section">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
                 <h2 class="section-title" style="margin:0;">Siniestros Registrados</h2>
-                <button type="button" class="btn btn-primary" id="incident-add-btn">➕ Agregar Siniestro</button>
             </div>
+            <p style="color:#9ca3af;font-size:0.83rem;margin:0.25rem 0 0;">Los siniestros se crean automáticamente al cerrar la vuelta del cliente (con su denuncia). Aquí puedes consultarlos, editarlos o eliminarlos.</p>
             <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-top:0.75rem;">
                 <select id="incident-filter-client" style="flex:1;min-width:220px;padding:0.5rem;border:1px solid #ccc;border-radius:4px;">
                     <option value="">-- Todos los clientes --</option>
@@ -43,19 +46,11 @@ export function renderIncidentSection(container) {
         </div>
 
         <div class="section mt-2" id="incident-bank-section" style="display:none;">
-            <h2 class="section-title">Bancos por Reclamar del Siniestro</h2>
+            <h2 class="section-title">Bancos / Reclamos del Siniestro</h2>
             <div id="incident-bank-info"></div>
-            <button type="button" class="btn btn-primary" id="incident-bank-add-btn">➕ Agregar Banco</button>
             <div id="incident-bank-list" class="mt-2"></div>
         </div>
     `;
-
-    container.querySelector('#incident-add-btn').addEventListener('click', () => openIncidentModal(container, null));
-    container.querySelector('#incident-bank-add-btn').addEventListener('click', () => {
-        const section = container.querySelector('#incident-bank-section');
-        const incidentId = section.getAttribute('data-incident-id');
-        if (incidentId) openBankModal(container, incidentId);
-    });
 
     const filterSel = container.querySelector('#incident-filter-client');
     filterSel.addEventListener('change', (e) => { incidentClientId = e.target.value || null; refreshIncidentList(container); });
@@ -98,6 +93,7 @@ function openIncidentModal(container, incidentId) {
                 <div class="error-message" data-error="fecha"></div>
             </div>
         </div>
+        ${editing ? '' : '<div id="modal-incident-vueltas"></div>'}
         <div class="form-row">
             <div class="form-group" data-field="denunciaArchivo">
                 <label>Denuncia policial (PDF, JPG, PNG) ${editing ? '' : '*'}</label>
@@ -131,6 +127,12 @@ function openIncidentModal(container, incidentId) {
                     selectedFileDataUrl = null; selectedFileName = null;
                 }
             });
+            // Mostrar las vueltas del cliente elegido (1 = informativa; 2+ = para escoger)
+            if (!editing) {
+                const clientSel = overlay.querySelector('#modal-incident-client');
+                clientSel.addEventListener('change', () => renderVueltasBlock(overlay, clientSel.value));
+                renderVueltasBlock(overlay, clientSel.value);
+            }
         },
         onSubmit: (form) => {
             clearModalErrors();
@@ -153,13 +155,69 @@ function openIncidentModal(container, incidentId) {
                 closeFormModal();
                 refreshIncidentList(container);
                 if (!editing) {
-                    showBankSection(container, result.incident.id);
+                    // Si el cliente ya hizo la vuelta, crear los reclamos de esos bancos
+                    // automáticamente. Con varias vueltas, solo las que el usuario marcó.
+                    const clienteId = form.querySelector('#modal-incident-client').value;
+                    let vueltaIds = null; // null = todas
+                    const chks = [...form.querySelectorAll('.inc-vuelta')];
+                    if (chks.length) vueltaIds = chks.filter(c => c.checked).map(c => c.value);
+                    else {
+                        const unica = form.querySelector('#modal-incident-vueltas [data-vuelta-id]');
+                        if (unica) vueltaIds = [unica.getAttribute('data-vuelta-id')];
+                    }
+                    (async () => {
+                        try {
+                            if (!vueltaIds || vueltaIds.length) {
+                                const creados = await autoCreateClaimsFromVueltas(clienteId, result.incident.id, vueltaIds);
+                                if (creados.length) showReclamosVueltaToast(creados);
+                            }
+                        } catch (e) { /* sin vueltas o error de red: flujo manual disponible */ }
+                        showBankSection(container, result.incident.id);
+                    })();
                 }
             } else {
                 showModalFieldErrors(result.errors);
             }
         }
     });
+}
+
+/**
+ * Bloque de vueltas del cliente en el modal de Nuevo Siniestro.
+ * 1 vuelta → información obligatoria (con qué se amarra el siniestro).
+ * 2+ vueltas → checkboxes para escoger cuál(es) corresponden a este siniestro.
+ */
+function renderVueltasBlock(overlay, clienteId) {
+    const box = overlay.querySelector('#modal-incident-vueltas');
+    if (!box) return;
+    if (!clienteId) { box.innerHTML = ''; return; }
+    // Regla: 1 siniestro ↔ 1 vuelta. Solo se ofrecen las vueltas NO amarradas.
+    const todas = getVueltas(clienteId);
+    const libres = todas.filter(v => !v.siniestroId);
+    const amarradas = todas.length - libres.length;
+    const item = (v) => `Vuelta del <strong>${formatDate(v.fecha)}</strong> — ${bancosDeVuelta(v).map(b => escapeHtml(b.nombre)).join(', ') || 'sin bancos'} <span style="color:${v.estado === 'abierta' ? '#34d399' : '#9ca3af'};">(${v.estado})</span>`;
+    const notaAmarradas = amarradas ? ` <span style="color:#6b7280;">(${amarradas} vuelta(s) ya amarrada(s) a otros siniestros no se muestran.)</span>` : '';
+
+    if (libres.length === 0) {
+        box.innerHTML = `<div style="background:#111827;border:1px solid #1f2937;border-radius:8px;padding:0.6rem 0.8rem;margin-bottom:0.75rem;font-size:0.83rem;color:#9ca3af;">
+            ℹ️ Este cliente no tiene vueltas sin amarrar: los bancos del reclamo se agregarán manualmente.${notaAmarradas}</div>`;
+        return;
+    }
+    if (libres.length === 1) {
+        box.innerHTML = `<div data-vuelta-id="${escapeHtml(libres[0].id)}" style="background:#160f26;border:1px solid #7c3aed;border-radius:8px;padding:0.6rem 0.8rem;margin-bottom:0.75rem;font-size:0.83rem;color:#cbd5e1;">
+            🔄 <strong>Se amarrará con:</strong> ${item(libres[0])}<br>
+            <span style="color:#9ca3af;">Los reclamos de esos bancos se crearán automáticamente al registrar.${notaAmarradas}</span></div>`;
+        return;
+    }
+    box.innerHTML = `<div style="background:#160f26;border:1px solid #7c3aed;border-radius:8px;padding:0.6rem 0.8rem;margin-bottom:0.75rem;font-size:0.83rem;color:#cbd5e1;">
+        🔄 <strong>Este cliente tiene ${libres.length} vueltas sin amarrar — elige LA vuelta de este siniestro:</strong>
+        <div style="display:flex;flex-direction:column;gap:0.35rem;margin-top:0.4rem;">
+            ${libres.map((v, i) => `<label style="display:flex;align-items:flex-start;gap:0.5rem;font-weight:normal;cursor:pointer;">
+                <input type="radio" name="inc-vuelta-radio" class="inc-vuelta" value="${escapeHtml(v.id)}" ${i === 0 ? 'checked' : ''} style="width:auto;margin:2px 0 0;flex:0 0 auto;">
+                <span>${item(v)}</span>
+            </label>`).join('')}
+        </div>
+        <span style="color:#9ca3af;">Un siniestro se amarra a una sola vuelta.${notaAmarradas}</span></div>`;
 }
 
 /**
@@ -230,6 +288,7 @@ function refreshIncidentList(container) {
                     <button type="button" class="btn-icon primary edit-incident-btn" data-incident-id="${escapeHtml(inc.id)}" title="Editar">✏️</button>
                     <button type="button" class="btn-icon view-banks-btn" data-incident-id="${escapeHtml(inc.id)}" title="Bancos">🏦</button>
                     <button type="button" class="btn-icon go-reclamo-btn" data-client-id="${escapeHtml(inc.clienteId)}" title="Ir a Reclamos de este cliente">📑</button>
+                    ${isAdminUser() ? `<button type="button" class="btn-icon danger delete-incident-btn" data-incident-id="${escapeHtml(inc.id)}" title="Eliminar siniestro (y sus reclamos)">🗑️</button>` : ''}
                 </td>
             </tr>
         `;
@@ -262,6 +321,27 @@ function refreshIncidentList(container) {
             const file = btn.getAttribute('data-file');
             const format = btn.getAttribute('data-format');
             if (file) openFileViewer(file, format);
+        });
+    });
+
+    listContent.querySelectorAll('.delete-incident-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const incidentId = btn.getAttribute('data-incident-id');
+            const nReclamos = claimRepository.findByIncidentId(incidentId).length;
+            const detalle = nReclamos
+                ? ` Se eliminarán también sus ${nReclamos} reclamo(s) con TODOS sus eventos, pasos y coberturas.`
+                : '';
+            if (!await confirmarEliminacion(
+                `¿Eliminar este siniestro por completo?${detalle} La eliminación queda registrada en auditoría y no se puede deshacer.`
+            )) return;
+            const r = await deleteIncidentCascade(incidentId);
+            if (r.success) {
+                const s = container.querySelector('#incident-bank-section');
+                if (s && s.getAttribute('data-incident-id') === incidentId) s.style.display = 'none';
+                refreshIncidentList(container);
+            } else {
+                alert(r.message || 'No se pudo eliminar el siniestro.');
+            }
         });
     });
 }
@@ -337,6 +417,19 @@ function refreshBankList(container, incidentId) {
             }
         });
     });
+}
+
+/** Toast: reclamos creados automáticamente desde la vuelta al registrar el siniestro. */
+function showReclamosVueltaToast(creados) {
+    const prev = document.getElementById('inc-reclamos-toast');
+    if (prev) prev.remove();
+    const toast = document.createElement('div');
+    toast.id = 'inc-reclamos-toast';
+    toast.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:#065f46;color:#fff;padding:0.9rem 1.1rem;border-radius:8px;z-index:99999;font-size:0.92rem;line-height:1.4;box-shadow:0 4px 14px rgba(0,0,0,0.4);max-width:360px;';
+    toast.innerHTML = `<strong>✅ Reclamos creados desde la vuelta:</strong> ${creados.map(c => escapeHtml(c.bancoNombre)).join(', ')}.<br>
+        Ya no necesitas agregar los bancos: ve a <a href="#reclamos" style="color:#a7f3d0;font-weight:700;">Reclamos</a> para poner montos y coberturas.`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 14000);
 }
 
 function showModalFieldErrors(errors) {

@@ -4,9 +4,14 @@
 #      .\deploy.ps1 rapido   → commit+push git + sube solo archivos modificados en las últimas 2 horas
 # ============================================================
 
-$FTP_HOST = "ftp://107.180.115.202"
-$FTP_USER = "subeppk@sitemasperu.com"
-$FTP_PASS = "Aa@33590728"
+# Credenciales FTP desde archivo NO versionado (S3). Crea deploy.secrets.ps1 con:
+#   $FTP_HOST = "ftp://<host>"; $FTP_USER = "<user>"; $FTP_PASS = "<pass>"
+$secretsFile = Join-Path $PSScriptRoot "deploy.secrets.ps1"
+if (-not (Test-Path $secretsFile)) {
+    Write-Host "ERROR: falta deploy.secrets.ps1 (credenciales FTP fuera del repositorio)." -ForegroundColor Red
+    exit 1
+}
+. $secretsFile
 $REMOTE_PATH = ""
 
 # Carpetas y archivos a EXCLUIR del FTP (no van al servidor)

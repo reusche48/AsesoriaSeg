@@ -4,7 +4,7 @@ import { claimRepository } from '../repositories/claimRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import { claimStepRepository } from '../repositories/claimStepRepository.js';
 import { getEventsWithDeadline } from './claimEventService.js';
-import { ensureClaimSteps } from './claimStepService.js';
+import { ensureClaimSteps, computeStepsState, esOpcional } from './claimStepService.js';
 import { getPaymentStatusForClient } from './paymentService.js';
 import { getOpenVueltas, getVueltas, eligibleBanks, bancosCerradosSet } from './vueltaService.js';
 
@@ -100,14 +100,14 @@ export function describeAccion(paso) {
 export function getClaimStepsState(claimId) {
     const steps = ensureClaimSteps(claimId);
     const evd = getEventsWithDeadline();
-    let pasoActual = null;
     const decorated = steps.map(s => {
         const alerta = s.tipoPaso === 'espera' ? stepAlert(s.id, evd) : null;
-        const o = { ...s, estadoAlerta: alerta?.estadoAlerta || null, diasRestantes: alerta?.diasRestantes ?? null };
-        if (!pasoActual && s.estado !== 'completado') pasoActual = o;
-        return o;
-    });
-    return { steps: decorated, pasoActual };
+        return { ...s, estadoAlerta: alerta?.estadoAlerta || null, diasRestantes: alerta?.diasRestantes ?? null };
+    }).sort((a, b) => (Number(a.orden) || 0) - (Number(b.orden) || 0));
+    // Lógica de etapa (pasos en paralelo + opcionales que no bloquean) en claimStepService.
+    const { pasosActuales, pasoActual, tramiteCompleto, opcionalesPendientes } = computeStepsState(decorated);
+    pasosActuales.forEach(s => { s.accion = describeAccion(s); });
+    return { steps: decorated, pasoActual, pasosActuales, tramiteCompleto, opcionalesPendientes };
 }
 
 /** Siguiente acción por cliente: pasos generales + estado del trámite por banco. */
@@ -115,7 +115,7 @@ export function getNextActionsForClient(clientId) {
     const generales = getGeneralStepsForClient(clientId);
     const claims = claimsOfClient(clientId);
     const porBanco = claims.map(claim => {
-        const { steps, pasoActual } = getClaimStepsState(claim.id);
+        const { steps, pasoActual, pasosActuales, tramiteCompleto, opcionalesPendientes } = getClaimStepsState(claim.id);
         const bank = bankRepository.getById(claim.bancoId);
         return {
             claimId: claim.id,
@@ -125,6 +125,9 @@ export function getNextActionsForClient(clientId) {
             fechaReclamo: claim.fecha,
             steps,
             pasoActual,
+            pasosActuales,
+            tramiteCompleto,
+            opcionalesPendientes,
             sinPasos: steps.length === 0,
             accion: describeAccion(pasoActual),
         };
@@ -141,7 +144,8 @@ export function getAllPendingActions() {
     const steps = claimStepRepository.getAll().filter(s => s.estado === 'en_curso');
     let n = 0;
     for (const s of steps) {
-        if (s.tipoPaso === 'peticion_parcial') { n++; continue; }
+        // Los pasos opcionales no cuentan por estar abiertos; solo si su plazo venció.
+        if (s.tipoPaso === 'peticion_parcial' && !esOpcional(s)) { n++; continue; }
         const a = stepAlert(s.id, evd);
         if (a && (a.estadoAlerta === 'Vencido' || a.estadoAlerta === 'Vence hoy')) n++;
     }

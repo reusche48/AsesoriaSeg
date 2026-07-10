@@ -4,7 +4,7 @@ import { bankRepository } from '../repositories/bankRepository.js';
 import { cardRepository } from '../repositories/cardRepository.js';
 import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { auditLinkHtml, openFileViewer } from '../app.js';
-import { openFormModal, closeFormModal, showModalFieldErrors, showModalAlert, clearModalErrors } from './modalHelper.js';
+import { openFormModal, closeFormModal, showModalFieldErrors, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
 import { confirmarEliminacion, handleFileUpload } from '../utils.js';
 import { getActiveClientId } from '../state/clientContext.js';
@@ -68,14 +68,14 @@ function openCardForm(container, card) {
             </div>
             <div id="modal-evidencia-row" class="form-row" style="display:${card?.seguroId ? '' : 'none'};">
                 <div class="form-group" data-field="evidenciaSeguro">
-                    <label>Evidencia del Seguro *</label>
+                    <label>Evidencia del Seguro <span style="color:#9ca3af;font-weight:normal;">(opcional)</span></label>
                     <input type="file" id="modal-evidencia-seguro" accept="image/*,.pdf">
-                    <div id="modal-ev-preview" style="font-size:0.85rem;margin-top:0.3rem;">${evidenciaSeguroDataUrl ? '📎 Archivo existente' : ''}</div>
+                    <div id="modal-ev-preview" style="font-size:0.85rem;margin-top:0.3rem;"></div>
                     <div class="error-message" data-error="evidenciaSeguro"></div>
                 </div>
             </div>
             <div class="form-row">
-                <div class="form-group" data-field="numeroCuenta"><label>N° Cuenta *</label><input type="text" name="numeroCuenta" value="${esc(card?.numeroCuenta || '')}" required><div class="error-message" data-error="numeroCuenta"></div></div>
+                <div class="form-group" data-field="numeroCuenta"><label>N° Cuenta</label><input type="text" name="numeroCuenta" value="${esc(card?.numeroCuenta || '')}"><div class="error-message" data-error="numeroCuenta"></div></div>
                 <div class="form-group" data-field="numeroCCI"><label>N° CCI</label><input type="text" name="numeroCCI" value="${esc(card?.numeroCCI || '')}" maxlength="20" placeholder="Código Interbancario"><div class="error-message" data-error="numeroCCI"></div></div>
             </div>
             <div class="form-row">
@@ -92,10 +92,8 @@ function openCardForm(container, card) {
             clearModalErrors();
             const fd = new FormData(form);
             const seguroId = fd.get('seguroId');
-            if (seguroId && !evidenciaSeguroDataUrl) {
-                showModalAlert('La evidencia del seguro es obligatoria cuando se asigna un seguro.', 'danger');
-                return;
-            }
+            // La evidencia es opcional: una tarjeta puede tener seguro sin evidencia
+            // (se puede quitar y adjuntar después).
             const data = {
                 clienteId: fd.get('clienteId') || fd.get('clienteIdHidden') || '',
                 bancoId: fd.get('bancoId'), seguroId: seguroId,
@@ -117,6 +115,29 @@ function openCardForm(container, card) {
             const evRow = overlay.querySelector('#modal-evidencia-row');
             const fileInput = overlay.querySelector('#modal-evidencia-seguro');
 
+            const evPreview = overlay.querySelector('#modal-ev-preview');
+            // Muestra el estado de la evidencia: enlace para verla + botón para quitarla,
+            // o un aviso de que es opcional si no hay ninguna.
+            const renderEvPreview = () => {
+                if (evidenciaSeguroDataUrl) {
+                    evPreview.innerHTML = `📎 <a href="#" id="modal-ev-ver" style="color:#60a5fa;">Ver evidencia actual</a>
+                        <button type="button" id="modal-ev-quitar" style="margin-left:8px;background:#7f1d1d;color:#fff;border:none;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:0.8rem;">🗑️ Quitar</button>`;
+                    overlay.querySelector('#modal-ev-ver').addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const fmt = String(evidenciaSeguroDataUrl).startsWith('data:application/pdf') ? 'PDF' : '';
+                        openFileViewer(evidenciaSeguroDataUrl, fmt);
+                    });
+                    overlay.querySelector('#modal-ev-quitar').addEventListener('click', () => {
+                        evidenciaSeguroDataUrl = null;
+                        fileInput.value = '';
+                        renderEvPreview();
+                    });
+                } else {
+                    evPreview.innerHTML = `<span style="color:#9ca3af;">Sin evidencia. Puedes subir un archivo si deseas adjuntarla.</span>`;
+                }
+            };
+            renderEvPreview();
+
             const toggleEvRow = () => {
                 evRow.style.display = insSel.value ? '' : 'none';
             };
@@ -134,7 +155,7 @@ function openCardForm(container, card) {
             fileInput.addEventListener('change', () => {
                 const file = fileInput.files[0];
                 if (file) {
-                    handleFileUpload(fileInput, url => { evidenciaSeguroDataUrl = url; }, uploadFile);
+                    handleFileUpload(fileInput, url => { evidenciaSeguroDataUrl = url; renderEvPreview(); }, uploadFile);
                 }
             });
         },
@@ -146,6 +167,12 @@ function refreshList(container) {
     if (!selectedClientId) { el.innerHTML = '<div class="empty-state">Seleccione un cliente.</div>'; return; }
     const cards = cardRepository.findByClientId(selectedClientId);
     if (cards.length === 0) { el.innerHTML = '<div class="empty-state">No tiene tarjetas registradas.</div>'; return; }
+
+    // Ordenar por banco (y como desempate por N° de tarjeta) para agrupar visualmente.
+    const nombreBanco = id => bankRepository.getById(id)?.nombre || '';
+    cards.sort((a, b) =>
+        nombreBanco(a.bancoId).localeCompare(nombreBanco(b.bancoId), 'es', { sensitivity: 'base' }) ||
+        String(a.numero || '').localeCompare(String(b.numero || ''), 'es'));
 
     const rows = cards.map(c => {
         const bank = bankRepository.getById(c.bancoId);

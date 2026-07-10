@@ -1,4 +1,4 @@
-import { getSession, isAdmin } from '../auth.js';
+import { getSession, isAdmin, resetUserSecurityCode } from '../auth.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { confirmarEliminacion } from '../utils.js';
 
@@ -28,6 +28,8 @@ const ALL_SCREENS = [
     { key: 'consultaAdelantos', label: 'Consulta Adelantos' },
     { key: 'fichaCliente', label: 'Ficha Cliente' },
     { key: 'tarjetasSinSeguro', label: 'Tarjetas Sin Seguro' },
+    { key: 'recargas', label: 'Recargas' },
+    { key: 'cuadre', label: 'Cuadre de Cuentas' },
 ];
 
 let roles = [];
@@ -259,6 +261,7 @@ function renderUserList(container) {
                 <td>
                     <button type="button" class="btn-icon primary edit-user-btn" data-id="${esc(u.id)}" title="Editar">✏️</button>
                     <button type="button" class="btn-icon reset-pwd-btn" style="background:#ff8f00;color:#fff;" data-id="${esc(u.id)}" title="Resetear contraseña a 4321">🔑</button>
+                    <button type="button" class="btn-icon reset-2fa-btn" style="background:#7c3aed;color:#fff;" data-id="${esc(u.id)}" title="Quitar código de seguridad (si lo olvidó)">🔒</button>
                     <button type="button" class="btn-icon danger delete-user-btn" data-id="${esc(u.id)}" title="Eliminar">🗑️</button>
                 </td>
             </tr>
@@ -275,6 +278,17 @@ function renderUserList(container) {
                 await fetch(`${API_BASE}?collection=users&id=${btn.getAttribute('data-id')}`, { method: 'DELETE' });
                 await loadData();
                 render(container);
+            }
+        });
+    });
+    list.querySelectorAll('.reset-2fa-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const userId = btn.getAttribute('data-id');
+            const user = users.find(u => u.id === userId);
+            const nombre = user ? user.usuario : '';
+            if (confirm(`¿Quitar el código de seguridad de "${nombre}"? Podrá entrar solo con su contraseña y configurar uno nuevo.`)) {
+                const ok = await resetUserSecurityCode(userId);
+                alert(ok ? 'Código de seguridad quitado.' : 'No se pudo quitar el código.');
             }
         });
     });

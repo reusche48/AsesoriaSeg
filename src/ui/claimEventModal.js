@@ -18,6 +18,8 @@ export function openStepEventModal({ claimId, paso, onDone }) {
     const esInfo = paso.tipoPaso === 'informativo';
     let evidenceUrl = null;
     let uploading = false;
+    let archivosUrls = [];
+    let uploadingArchivos = false;
 
     const plazoHtml = esInfo ? '' : `
         <div class="form-row">
@@ -35,7 +37,7 @@ export function openStepEventModal({ claimId, paso, onDone }) {
         </div>`;
 
     openFormModal({
-        title: `Registrar paso: ${paso.nombre}`,
+        title: `Registrar: ${paso.nombre}`,
         submitLabel: 'Registrar',
         html: `
             <div class="form-row">
@@ -55,6 +57,12 @@ export function openStepEventModal({ claimId, paso, onDone }) {
                 <input type="file" id="se-evidencia" accept=".pdf,.jpg,.jpeg,.png,.webp">
                 <div id="se-evidencia-status" style="font-size:0.82rem;margin-top:4px;min-height:1.2em;color:#9ca3af;"></div>
             </div>
+            <div class="form-group">
+                <label>Archivos adjuntos (varios — opcional)</label>
+                <input type="file" id="se-archivos" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.zip">
+                <div id="se-archivos-status" style="font-size:0.82rem;margin-top:4px;min-height:1.2em;color:#9ca3af;"></div>
+                <div style="font-size:0.75rem;color:#6b7280;margin-top:2px;">Los archivos que enviaste (aparte de la evidencia). Puedes elegir varios a la vez.</div>
+            </div>
             ${plazoHtml}
             ${esInfo ? '<p style="color:#9ca3af;font-size:0.82rem;">Paso informativo: no espera respuesta, se marcará como completado.</p>' : ''}
         `,
@@ -73,15 +81,37 @@ export function openStepEventModal({ claimId, paso, onDone }) {
                     status.textContent = 'Error al subir el archivo.'; status.style.color = '#ef4444';
                 });
             });
+
+            // Archivos adjuntos (varios): sube todos los seleccionados y muestra la lista.
+            const inputArch = overlay.querySelector('#se-archivos');
+            const statusArch = overlay.querySelector('#se-archivos-status');
+            inputArch.addEventListener('change', () => {
+                const files = Array.from(inputArch.files || []);
+                archivosUrls = [];
+                if (!files.length) { statusArch.textContent = ''; return; }
+                uploadingArchivos = true;
+                statusArch.style.color = '#f59e0b';
+                statusArch.textContent = `⏳ Subiendo ${files.length} archivo(s)...`;
+                Promise.all(files.map(f => uploadFile(f))).then(urls => {
+                    archivosUrls = urls.filter(Boolean);
+                    uploadingArchivos = false;
+                    statusArch.style.color = '#10b981';
+                    statusArch.textContent = `✓ ${archivosUrls.length} archivo(s) adjuntado(s): ` + files.map(f => f.name).join(', ');
+                }).catch(() => {
+                    archivosUrls = []; uploadingArchivos = false; inputArch.value = '';
+                    statusArch.style.color = '#ef4444';
+                    statusArch.textContent = 'Error al subir uno de los archivos. Inténtalo de nuevo.';
+                });
+            });
         },
         onSubmit: (form) => {
-            if (uploading) { showModalAlert('Espere a que termine de subir la evidencia.', 'error'); return; }
+            if (uploading || uploadingArchivos) { showModalAlert('Espere a que terminen de subir los archivos.', 'error'); return; }
             const fecha = form.querySelector('#se-fecha').value;
             const obs = form.querySelector('#se-obs').value;
             const diasStr = esInfo ? '' : form.querySelector('#se-dias').value;
             const dias = diasStr ? parseInt(diasStr) : null;
             const tipoDias = dias ? form.querySelector('#se-tipodias').value : null;
-            const result = addClaimEvent(claimId, fecha, paso.nombre, obs, evidenceUrl, dias, tipoDias, null, paso.id);
+            const result = addClaimEvent(claimId, fecha, paso.nombre, obs, evidenceUrl, dias, tipoDias, null, paso.id, archivosUrls);
             if (result.success) {
                 closeFormModal();
                 if (onDone) onDone();

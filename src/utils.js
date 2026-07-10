@@ -38,7 +38,10 @@ export function formatMoney(value) {
  * @param {string} [tipo='danger'] - 'danger' | 'warning'
  * @returns {Promise<boolean>}
  */
-export function confirmarEliminacion(mensaje = '¿Está seguro de que desea eliminar este registro? Esta acción no se puede deshacer.') {
+export function confirmarEliminacion(mensaje = '¿Está seguro de que desea eliminar este registro? Esta acción no se puede deshacer.', opts = {}) {
+    const titulo = opts.titulo || '⚠️ Confirmar eliminación';
+    const confirmLabel = opts.confirmLabel || 'Eliminar';
+    const confirmColor = opts.confirmColor || '#c62828';
     return new Promise((resolve) => {
         const prev = document.querySelector('.confirm-overlay');
         if (prev) prev.remove();
@@ -48,11 +51,11 @@ export function confirmarEliminacion(mensaje = '¿Está seguro de que desea elim
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
         overlay.innerHTML = `
             <div style="background:#fff;border-radius:8px;padding:1.5rem;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.25);">
-                <h3 style="margin:0 0 0.75rem;color:#c62828;font-size:1rem;">⚠️ Confirmar eliminación</h3>
+                <h3 style="margin:0 0 0.75rem;color:${esc(confirmColor)};font-size:1rem;">${esc(titulo)}</h3>
                 <p style="margin:0 0 1.25rem;color:#333;font-size:0.95rem;">${esc(mensaje)}</p>
                 <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
                     <button id="confirm-cancel" class="btn btn-secondary">Cancelar</button>
-                    <button id="confirm-ok" class="btn btn-danger" style="background:#c62828;color:#fff;border:none;padding:0.45rem 1.1rem;border-radius:4px;cursor:pointer;font-weight:600;">Eliminar</button>
+                    <button id="confirm-ok" class="btn btn-danger" style="background:${esc(confirmColor)};color:#fff;border:none;padding:0.45rem 1.1rem;border-radius:4px;cursor:pointer;font-weight:600;">${esc(confirmLabel)}</button>
                 </div>
             </div>
         `;

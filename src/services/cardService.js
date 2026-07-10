@@ -37,9 +37,7 @@ export function addCard(data) {
     if (!data.numeroTarjeta || !data.numeroTarjeta.trim()) {
         errors.push({ field: 'numeroTarjeta', code: 'REQUIRED_FIELD', message: 'El número de tarjeta es requerido.' });
     }
-    if (!data.numeroCuenta || !data.numeroCuenta.trim()) {
-        errors.push({ field: 'numeroCuenta', code: 'REQUIRED_FIELD', message: 'El número de cuenta es requerido.' });
-    }
+    // N° de cuenta es opcional.
     if (!data.moneda || !VALID_CURRENCIES.includes(data.moneda)) {
         errors.push({ field: 'moneda', code: 'REQUIRED_FIELD', message: 'El tipo de moneda es requerido (PEN o USD).' });
     }
@@ -58,11 +56,12 @@ export function addCard(data) {
         }
     }
 
+    const numeroCuenta = (data.numeroCuenta || '').trim();
     const account = bankAccountRepository.save({
         clienteId: data.clienteId,
         bancoId: data.bancoId,
         moneda: data.moneda,
-        numeroCuenta: data.numeroCuenta.trim(),
+        numeroCuenta: numeroCuenta,
     });
 
     const card = cardRepository.save({
@@ -72,7 +71,7 @@ export function addCard(data) {
         numero: data.numeroTarjeta.trim(),
         cuentaIds: [account.id],
         moneda: data.moneda,
-        numeroCuenta: data.numeroCuenta.trim(),
+        numeroCuenta: numeroCuenta,
         comentario: data.comentario || '',
         activo: data.activo !== undefined ? data.activo : true,
         evidenciaSeguro: evidencia,
@@ -98,18 +97,19 @@ export function updateCard(cardId, data) {
 
     if (!data.bancoId) errors.push({ field: 'bancoId', code: 'REQUIRED_FIELD', message: 'El banco es requerido.' });
     if (!data.numeroTarjeta || !data.numeroTarjeta.trim()) errors.push({ field: 'numeroTarjeta', code: 'REQUIRED_FIELD', message: 'El número de tarjeta es requerido.' });
-    if (!data.numeroCuenta || !data.numeroCuenta.trim()) errors.push({ field: 'numeroCuenta', code: 'REQUIRED_FIELD', message: 'El número de cuenta es requerido.' });
+    // N° de cuenta es opcional.
     if (!data.moneda || !VALID_CURRENCIES.includes(data.moneda)) errors.push({ field: 'moneda', code: 'REQUIRED_FIELD', message: 'El tipo de moneda es requerido (PEN o USD).' });
 
     if (errors.length > 0) return { success: false, errors };
 
     const seguroId = data.seguroId || null;
+    const numeroCuenta = (data.numeroCuenta || '').trim();
 
     const card = cardRepository.update(cardId, {
         bancoId: data.bancoId,
         seguroId: seguroId,
         numero: data.numeroTarjeta.trim(),
-        numeroCuenta: data.numeroCuenta.trim(),
+        numeroCuenta: numeroCuenta,
         numeroCCI: data.numeroCCI ? data.numeroCCI.trim() : '',
         moneda: data.moneda,
         comentario: data.comentario || '',

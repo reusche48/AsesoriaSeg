@@ -1,6 +1,9 @@
 import { addClaimDetail, updateClaimDetail, deleteClaimDetail, calculateClaimTotal, changeClaimState } from '../services/claimService.js';
+import { deleteClaim } from '../services/incidentService.js';
+import { isAdmin } from '../auth.js';
 import { claimRepository } from '../repositories/claimRepository.js';
 import { claimDetailRepository } from '../repositories/claimDetailRepository.js';
+import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
@@ -9,9 +12,10 @@ import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { coverageRepository } from '../repositories/coverageRepository.js';
 import { openFileViewer } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
-import { initStorage, uploadFile } from '../storage.js';
+import { uploadFile } from '../storage.js';
 import { confirmarEliminacion, handleFileUpload } from '../utils.js';
-import { getActiveClientId } from '../state/clientContext.js';
+import { getActiveClientId, setActiveClient } from '../state/clientContext.js';
+import { evidenciasDeBancoCliente, TIPOS_EVIDENCIA, getAllVueltas, bancosDeVuelta } from '../services/vueltaService.js';
 
 let selectedDetailEvidenceDataUrl = null;
 
@@ -26,7 +30,7 @@ export function renderClaimSection(container) {
     container.innerHTML = `
         <div class="section">
             <h2 class="section-title">Detalle de Reclamos</h2>
-            <button type="button" class="btn btn-secondary" id="refresh-data-btn" style="float:right;">🔄 Refrescar Datos</button>
+            <div id="claim-vueltas-box" style="margin:0.75rem 0 1rem;"></div>
             <div class="form-row">
                 <div class="form-group">
                     <label for="claim-client-select">Cliente *</label>
@@ -58,6 +62,7 @@ export function renderClaimSection(container) {
 
     setupClientSelector(container);
     setupBankSelector(container);
+    renderVueltaLauncher(container);
 
     if (preselectClientId) {
         const sel = container.querySelector('#claim-client-select');
@@ -68,22 +73,83 @@ export function renderClaimSection(container) {
         const claimId = container.querySelector('#claim-bank-select').value;
         if (claimId) openDetailModal(container, claimId, null);
     });
+}
 
-    container.querySelector('#refresh-data-btn').addEventListener('click', async () => {
-        const btn = container.querySelector('#refresh-data-btn');
-        btn.disabled = true;
-        btn.textContent = '⏳ Refrescando...';
-        
-        try {
-            await initStorage();
-            alert('Datos actualizados correctamente. La página se recargará.');
-            window.location.reload();
-        } catch (error) {
-            alert('Error al refrescar datos: ' + error.message);
-            btn.disabled = false;
-            btn.textContent = '🔄 Refrescar Datos';
-        }
+/**
+ * Lista de vueltas para reclamar: SIN RECLAMAR primero, luego reclamadas (editables).
+ * Cada banco es un chip clicable que abre directo su reclamo (montos + coberturas).
+ */
+function renderVueltaLauncher(container) {
+    const box = container.querySelector('#claim-vueltas-box');
+    if (!box) return;
+    // Respetar el cliente seleccionado en el desplegable: si hay uno, solo sus vueltas.
+    const selClient = container.querySelector('#claim-client-select')?.value || null;
+    const vueltas = getAllVueltas().filter(v =>
+        v.estado === 'cerrada' && v.siniestroId && (!selClient || v.clienteId === selClient));
+    if (!vueltas.length) { box.innerHTML = ''; return; }
+
+    const claims = claimRepository.getAll();
+    const decor = vueltas.map(v => {
+        const client = clientRepository.getById(v.clienteId);
+        const bancos = bancosDeVuelta(v).map(b => {
+            const claim = claims.find(c => c.siniestroId === v.siniestroId && c.bancoId === b.id) || null;
+            const nDet = claim ? claimDetailRepository.findByClaimId(claim.id).length : 0;
+            return { ...b, nDet };
+        });
+        return {
+            v, bancos,
+            clienteNombre: client ? `${client.nombreCompleto} ${client.apellidosCompletos}` : '—',
+            sinReclamar: bancos.some(b => b.nDet === 0),
+        };
+    }).sort((a, b) => ((b.sinReclamar ? 1 : 0) - (a.sinReclamar ? 1 : 0)) || (new Date(b.v.fecha) - new Date(a.v.fecha)));
+
+    const chip = (v, b) => b.nDet === 0
+        ? `<button type="button" class="claim-vuelta-banco" data-cliente="${esc(v.clienteId)}" data-banco="${esc(b.id)}"
+             style="background:#78350f;border:1px solid #b45309;color:#fbbf24;border-radius:8px;padding:4px 12px;font-size:0.8rem;font-weight:700;cursor:pointer;">
+             ${esc(b.nombre)} · ⏳ SIN RECLAMAR</button>`
+        : `<button type="button" class="claim-vuelta-banco" data-cliente="${esc(v.clienteId)}" data-banco="${esc(b.id)}"
+             style="background:#064e3b;border:1px solid #065f46;color:#34d399;border-radius:8px;padding:4px 12px;font-size:0.8rem;cursor:pointer;">
+             ${esc(b.nombre)} · ✔ ${b.nDet} cobertura(s) <span style="color:#9ca3af;">✏ editar</span></button>`;
+
+    box.innerHTML = `
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;overflow:hidden;">
+            <div style="padding:0.6rem 0.85rem;background:#160f26;border-bottom:1px solid #1f2937;">
+                <strong style="color:#f1f5f9;">🔄 Reclamar por vuelta</strong>
+                <span style="color:#6b7280;font-size:0.78rem;"> — toca un banco para asignarle coberturas y montos</span>
+            </div>
+            ${decor.map(d => `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.55rem 0.85rem;border-top:1px solid #1f2937;flex-wrap:wrap;">
+                <div style="flex:1;min-width:180px;">
+                    <span style="color:#f1f5f9;">${esc(d.clienteNombre)}</span>
+                    <span style="color:#6b7280;font-size:0.8rem;"> · vuelta del ${formatDate(d.v.fecha)}</span>
+                </div>
+                <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">${d.bancos.map(b => chip(d.v, b)).join('')}</div>
+            </div>`).join('')}
+        </div>`;
+
+    box.querySelectorAll('.claim-vuelta-banco').forEach(btn => {
+        btn.addEventListener('click', () => launchFromVuelta(container, btn.getAttribute('data-cliente'), btn.getAttribute('data-banco')));
     });
+}
+
+/** Abre el reclamo de un banco disparando los selectores existentes (cliente → banco). */
+function launchFromVuelta(container, clienteId, bancoId) {
+    const cs = container.querySelector('#claim-client-select');
+    cs.value = clienteId;
+    cs.dispatchEvent(new Event('change'));
+    const bs = container.querySelector('#claim-bank-select');
+    const opt = [...bs.options].find(o => o.getAttribute('data-bank-id') === bancoId);
+    if (!opt) {
+        // Aviso no bloqueante (un alert() nativo congelaría la página)
+        const t = document.createElement('div');
+        t.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:#b45309;color:#fff;padding:0.75rem 1rem;border-radius:8px;z-index:99999;font-size:0.9rem;max-width:340px;';
+        t.textContent = '⚠️ El cliente no tiene tarjetas registradas de este banco. Regístralas en Tarjetas.';
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 6000);
+        return;
+    }
+    bs.selectedIndex = opt.index;
+    bs.dispatchEvent(new Event('change'));
+    setTimeout(() => container.querySelector('#claim-info')?.scrollIntoView({ behavior: 'smooth' }), 150);
 }
 
 function setupClientSelector(container) {
@@ -93,6 +159,7 @@ function setupClientSelector(container) {
         const bankSelect = container.querySelector('#claim-bank-select');
         container.querySelector('#claim-detail-list-section').style.display = 'none';
         container.querySelector('#claim-info').innerHTML = '';
+        renderVueltaLauncher(container); // el bloque "Reclamar por vuelta" respeta el cliente elegido
 
         if (!clientId) {
             bankSelect.innerHTML = '<option value="">-- Primero seleccione un cliente --</option>';
@@ -112,6 +179,22 @@ function setupClientSelector(container) {
         const clientIncidents = incidentRepository.getAll().filter(inc => inc.clienteId === clientId);
 
         if (clientIncidents.length === 0) {
+            // ¿Tiene una vuelta cerrada SIN denuncia? Entonces el siniestro está esperando la denuncia.
+            const vueltaSinDen = getAllVueltas().find(v => v.clienteId === clientId && v.estado === 'cerrada' && !v.denunciaEvidencia);
+            if (vueltaSinDen) {
+                bankSelect.innerHTML = '<option value="">-- Falta subir la denuncia de su vuelta --</option>';
+                container.querySelector('#claim-info').innerHTML = `
+                    <div style="background:#160f26;border:1px solid #7c3aed;border-radius:8px;padding:0.7rem 0.9rem;font-size:0.88rem;color:#cbd5e1;">
+                        📄 Este cliente tiene una <strong>vuelta cerrada sin denuncia</strong> (del ${formatDate(vueltaSinDen.fecha)}).
+                        Al subir la denuncia se crearán el <strong>siniestro y los reclamos automáticamente</strong>, y podrás asignarles coberturas aquí.
+                        <div style="margin-top:0.5rem;"><button type="button" class="btn btn-primary" id="claim-ir-vuelta" style="padding:0.3rem 0.8rem;font-size:0.82rem;">📄 Ir a La Vuelta a subir la denuncia</button></div>
+                    </div>`;
+                container.querySelector('#claim-ir-vuelta').addEventListener('click', () => {
+                    setActiveClient(clientId);
+                    window.location.hash = '#vuelta';
+                });
+                return;
+            }
             bankSelect.innerHTML = '<option value="">-- El cliente no tiene siniestros registrados --</option>';
             return;
         }
@@ -251,9 +334,15 @@ function openDetailModal(container, claimId, detailId) {
             </div>
         </div>
         <div class="form-row">
+            <div class="form-group" data-field="montoSiniestrado">
+                <label>Monto siniestrado (lo robado) *</label>
+                <input type="number" id="modal-claim-monto-sin" min="0.01" step="0.01" required placeholder="Ej: 4500" value="${editing && editing.montoSiniestrado != null ? editing.montoSiniestrado : ''}">
+                <div class="error-message" data-error="montoSiniestrado"></div>
+            </div>
             <div class="form-group" data-field="monto">
-                <label>Monto a reclamar *</label>
-                <input type="number" id="modal-claim-monto" min="0.01" step="0.01" required placeholder="0.00" value="${editing ? editing.monto : ''}">
+                <label>Monto a reclamar (automático)</label>
+                <input type="number" id="modal-claim-monto" readonly style="background:#0b1220;color:#34d399;font-weight:700;" placeholder="—" value="${editing ? editing.monto : ''}">
+                <div style="font-size:0.75rem;color:#9ca3af;margin-top:2px;">El menor entre lo siniestrado y lo que cubre la póliza.</div>
                 <div class="error-message" data-error="monto"></div>
             </div>
             <div class="form-group" data-field="moneda">
@@ -275,15 +364,48 @@ function openDetailModal(container, claimId, detailId) {
                 <input type="text" id="modal-claim-equiv" readonly disabled style="background:#f5f5f5;">
             </div>
         </div>
+        ${(() => {
+            // Evidencias de la vuelta del banco: seleccionables por checkbox
+            const incident = claim ? incidentRepository.getById(claim.siniestroId) : null;
+            const evVuelta = (incident && claim) ? evidenciasDeBancoCliente(incident.clienteId, claim.bancoId).filter(e => e.evidencia) : [];
+            if (!evVuelta.length) {
+                // Si el banco SÍ está en una vuelta del cliente pero sin evidencias, avisar
+                // (antes la sección se ocultaba y parecía que la opción no existía).
+                const enVuelta = incident ? getAllVueltas().some(v => v.clienteId === incident.clienteId && String(v.bancoIds || '').includes(claim.bancoId)) : false;
+                return enVuelta ? `<div class="form-group"><label>Evidencias de la vuelta</label>
+                    <div style="background:#0b1220;border:1px dashed #374151;border-radius:8px;padding:0.5rem 0.7rem;font-size:0.82rem;color:#9ca3af;">
+                        La vuelta de este cliente no tiene evidencias registradas para <strong>este banco</strong>.
+                        Puedes reabrir la vuelta para agregarlas, o adjuntar un archivo aquí abajo.
+                    </div></div>` : '';
+            }
+            const tipoLbl = Object.fromEntries(TIPOS_EVIDENCIA.map(t => [t.value, t.label]));
+            const currentUrls = (editing?.evidencia || '').split(',').filter(Boolean);
+            return `<div class="form-group"><label>Evidencias de la vuelta (marca las que respaldan esta cobertura)</label>
+                <div style="display:flex;flex-direction:column;gap:0.35rem;background:#0b1220;border:1px solid #1f2937;border-radius:8px;padding:0.5rem 0.7rem;">
+                    ${evVuelta.map(e => `<label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal;font-size:0.85rem;cursor:pointer;">
+                        <input type="checkbox" class="claim-ev-vuelta" value="${esc(e.evidencia)}" ${currentUrls.includes(e.evidencia) ? 'checked' : ''} style="width:auto;margin:0;flex:0 0 auto;">
+                        ${miniaturaEv(e.evidencia)}
+                        <span style="flex:1;min-width:0;">${esc(tipoLbl[e.tipo] || e.tipo)}${e.concepto ? ' — ' + esc(e.concepto) : ''}${e.fecha ? ' · ' + e.fecha : ''}</span>
+                        <a href="#" class="claim-ev-ver" data-file="${esc(e.evidencia)}" style="color:#7c3aed;">ver</a>
+                    </label>`).join('')}
+                </div></div>`;
+        })()}
         <div class="form-row">
             <div class="form-group">
-                <label>Evidencia (archivo opcional)</label>
+                <label>Adjuntar archivo adicional (opcional)</label>
                 <input type="file" id="modal-claim-evidence">
+                <div id="modal-claim-ev-status" style="font-size:0.82rem;margin-top:4px;color:#9ca3af;min-height:1.2em;"></div>
             </div>
         </div>
     `;
 
-    selectedDetailEvidenceDataUrl = editing ? (editing.evidencia || null) : null;
+    // El adjunto "extra" (subido a mano) = URLs del detalle que NO vienen de la vuelta
+    {
+        const incident = claim ? incidentRepository.getById(claim.siniestroId) : null;
+        const vueltaUrls = new Set((incident && claim) ? evidenciasDeBancoCliente(incident.clienteId, claim.bancoId).map(e => e.evidencia).filter(Boolean) : []);
+        const currentUrls = (editing?.evidencia || '').split(',').filter(Boolean);
+        selectedDetailEvidenceDataUrl = currentUrls.find(u => !vueltaUrls.has(u)) || null;
+    }
 
     openFormModal({
         title: editing ? 'Editar Cobertura' : 'Agregar Cobertura al Reclamo',
@@ -299,28 +421,44 @@ function openDetailModal(container, claimId, detailId) {
             const tcInput = overlay.querySelector('#modal-claim-tc');
             const equivInput = overlay.querySelector('#modal-claim-equiv');
 
+            const montoSinInput = overlay.querySelector('#modal-claim-monto-sin');
+
             const updateEquiv = () => {
                 const monto = parseFloat(montoInput.value) || 0;
                 const tc = parseFloat(tcInput.value) || 0;
                 equivInput.value = (monedaSelect.value === 'USD' && monto > 0 && tc > 0) ? formatMoney(monto * tc) + ' PEN' : '';
             };
 
+            // Monto a reclamar = el MENOR entre lo siniestrado y lo que cubre la póliza.
+            // Ej: cubre 3,000 y robaron 4,500 → 3,000; robaron 2,000 → 2,000.
+            const recalcReclamo = () => {
+                const sin = parseFloat(montoSinInput.value) || 0;
+                const cov = coverageSelect.value ? coverageRepository.getById(coverageSelect.value) : null;
+                const tope = cov && cov.monto != null ? Number(cov.monto) : 0;
+                montoInput.value = sin > 0 ? (tope > 0 ? Math.min(sin, tope) : sin).toFixed(2) : '';
+                updateEquiv();
+            };
+
             insuranceSelect.addEventListener('change', () => {
                 const insId = insuranceSelect.value;
                 covMontoInfo.value = '';
-                if (!insId) { coverageSelect.innerHTML = '<option value="">-- Primero seleccione un seguro --</option>'; return; }
+                if (!insId) { coverageSelect.innerHTML = '<option value="">-- Primero seleccione un seguro --</option>'; recalcReclamo(); return; }
                 const covs = coverageRepository.findByInsuranceId(insId);
                 coverageSelect.innerHTML = covs.length === 0
                     ? '<option value="">-- No hay coberturas --</option>'
                     : `<option value="">-- Seleccione --</option>` + covs.map(c => `<option value="${esc(c.id)}">${esc(c.nombre)}</option>`).join('');
+                recalcReclamo();
             });
 
             coverageSelect.addEventListener('change', () => {
                 const covId = coverageSelect.value;
-                if (!covId) { covMontoInfo.value = ''; return; }
+                if (!covId) { covMontoInfo.value = ''; recalcReclamo(); return; }
                 const cov = coverageRepository.getById(covId);
                 if (cov) covMontoInfo.value = cov.monto != null ? formatMoney(cov.monto) : '0.00';
+                recalcReclamo();
             });
+
+            montoSinInput.addEventListener('input', recalcReclamo);
 
             monedaSelect.addEventListener('change', () => {
                 tcRow.style.display = monedaSelect.value === 'USD' ? '' : 'none';
@@ -331,13 +469,33 @@ function openDetailModal(container, claimId, detailId) {
             tcInput.addEventListener('input', updateEquiv);
             updateEquiv();
 
-            // Evidence
+            // Evidencias de la vuelta: link "ver"
+            overlay.querySelectorAll('.claim-ev-ver').forEach(a => {
+                a.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(a.getAttribute('data-file')); });
+            });
+
+            // Adjunto adicional (subido a mano)
+            const evStatus = overlay.querySelector('#modal-claim-ev-status');
+            const renderEvStatus = () => {
+                if (!evStatus) return;
+                evStatus.innerHTML = selectedDetailEvidenceDataUrl
+                    ? `<span style="color:#10b981;">✓ Archivo adjunto</span> <a href="#" id="claim-ev-quitar" style="color:#ef4444;margin-left:8px;">Quitar</a>`
+                    : '';
+                evStatus.querySelector('#claim-ev-quitar')?.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    selectedDetailEvidenceDataUrl = null;
+                    overlay.querySelector('#modal-claim-evidence').value = '';
+                    renderEvStatus();
+                });
+            };
+            renderEvStatus();
             overlay.querySelector('#modal-claim-evidence').addEventListener('change', (e) => {
                 const file = e.target.files[0];
                 if (file) {
-                    handleFileUpload(overlay.querySelector('#modal-claim-evidence'), url => { selectedDetailEvidenceDataUrl = url; }, uploadFile);
+                    handleFileUpload(overlay.querySelector('#modal-claim-evidence'), url => { selectedDetailEvidenceDataUrl = url; renderEvStatus(); }, uploadFile);
                 } else {
                     selectedDetailEvidenceDataUrl = null;
+                    renderEvStatus();
                 }
             });
         },
@@ -349,12 +507,21 @@ function openDetailModal(container, claimId, detailId) {
             const moneda = form.querySelector('#modal-claim-moneda').value;
             const tcStr = form.querySelector('#modal-claim-tc').value;
             const tipoCambio = tcStr ? parseFloat(tcStr) : null;
+            const msStr = form.querySelector('#modal-claim-monto-sin')?.value;
+            const montoSiniestrado = msStr ? parseFloat(msStr) : null;
+            if (!montoSiniestrado || montoSiniestrado <= 0) {
+                showModalFieldErrors([{ field: 'montoSiniestrado', message: 'Ingrese el monto siniestrado (lo robado).' }]);
+                return;
+            }
+            // Evidencias = las marcadas de la vuelta + el archivo adjunto (CSV)
+            const marcadas = [...form.querySelectorAll('.claim-ev-vuelta:checked')].map(c => c.value);
+            const evidenciaFinal = [...marcadas, selectedDetailEvidenceDataUrl].filter(Boolean).join(',') || null;
 
             let result;
             if (editing) {
-                result = updateClaimDetail(detailId, coverageId, monto, moneda, tipoCambio, selectedDetailEvidenceDataUrl);
+                result = updateClaimDetail(detailId, coverageId, monto, moneda, tipoCambio, evidenciaFinal, montoSiniestrado);
             } else {
-                result = addClaimDetail(claimId, coverageId, monto, moneda, tipoCambio, selectedDetailEvidenceDataUrl);
+                result = addClaimDetail(claimId, coverageId, monto, moneda, tipoCambio, evidenciaFinal, montoSiniestrado);
             }
 
             if (result.success) {
@@ -391,6 +558,26 @@ function updateClaimInfo(container, claimId) {
         ? `<button type="button" class="btn btn-primary" id="claim-advance-state-btn" style="margin-top:0.5rem;">${nextLabel}</button>`
         : `<span style="color:${stateColor};font-weight:700;">Reclamo culminado</span>`;
 
+    // Eliminar reclamo (solo admin, y solo si NO tiene eventos; primero hay que borrarlos).
+    const nEventos = claimEventRepository.findByClaimId(claimId).length;
+    const deleteBtn = isAdmin()
+        ? (nEventos > 0
+            ? `<div style="margin-top:0.5rem;color:#9ca3af;font-size:0.8rem;">Para eliminar este reclamo, primero elimina sus ${nEventos} evento(s) en la sección Eventos.</div>`
+            : `<button type="button" id="claim-delete-btn" style="margin-top:0.5rem;background:#7f1d1d;color:#fff;border:none;border-radius:6px;padding:0.4rem 0.8rem;cursor:pointer;">🗑️ Eliminar reclamo</button>`)
+        : '';
+
+    // Evidencias registradas en la vuelta para este banco (consulta rápida al poner montos)
+    const evVuelta = (client && claim) ? evidenciasDeBancoCliente(client.id, claim.bancoId) : [];
+    const tipoLbl = Object.fromEntries(TIPOS_EVIDENCIA.map(t => [t.value, t.label]));
+    const evVueltaHtml = evVuelta.length ? `
+        <div style="margin-top:0.6rem;border-top:1px dashed #375a7f;padding-top:0.5rem;">
+            <strong>📎 Evidencias de la vuelta — ${bank ? esc(bank.nombre) : ''} (${evVuelta.length}):</strong>
+            ${evVuelta.map(e => `<div style="font-size:0.85rem;padding:2px 0;">
+                • ${esc(tipoLbl[e.tipo] || e.tipo)}${e.concepto ? ' — ' + esc(e.concepto) : ''}${e.fecha ? ' · ' + formatDate(e.fecha) : ''}${e.hora ? ' ' + esc(e.hora) : ''}
+                ${e.evidencia ? ` <a href="#" class="claim-vu-ev" data-file="${esc(e.evidencia)}" style="color:#7c3aed;font-weight:600;">ver</a>` : ' <span style="color:#9ca3af;">(sin archivo)</span>'}
+            </div>`).join('')}
+        </div>` : '';
+
     container.querySelector('#claim-info').innerHTML = `<div class="alert alert-info">
         <div><strong>Cliente:</strong> ${clientName}</div>
         <div><strong>Banco:</strong> ${bank ? esc(bank.nombre) : 'N/A'}</div>
@@ -398,8 +585,14 @@ function updateClaimInfo(container, claimId) {
         <div><strong>Estado:</strong> <span style="color:${stateColor};font-weight:700;">${esc(estado)}</span></div>
         <div><strong>Monto Total (Soles):</strong> S/ ${formatMoney(claim?.montoTotal)}</div>
         <div><strong>Coberturas registradas:</strong> ${details.length}</div>
+        ${evVueltaHtml}
         <div>${advanceBtn}</div>
+        <div>${deleteBtn}</div>
     </div>`;
+
+    container.querySelectorAll('.claim-vu-ev').forEach(a => {
+        a.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(a.getAttribute('data-file')); });
+    });
 
     const advBtn = container.querySelector('#claim-advance-state-btn');
     if (advBtn) {
@@ -413,6 +606,19 @@ function updateClaimInfo(container, claimId) {
             } else {
                 alert(result.errors?.[0]?.message || 'Error al cambiar estado.');
             }
+        });
+    }
+
+    const delBtn = container.querySelector('#claim-delete-btn');
+    if (delBtn) {
+        delBtn.addEventListener('click', async () => {
+            if (!await confirmarEliminacion(
+                '¿Eliminar este reclamo? Se borrarán sus coberturas y pasos. Esta acción no se puede deshacer.',
+                { titulo: '🗑️ Eliminar reclamo', confirmLabel: 'Eliminar' }
+            )) return;
+            const r = deleteClaim(claimId);
+            if (r.success) renderClaimSection(container);
+            else alert(r.message || 'No se pudo eliminar el reclamo.');
         });
     }
 }
@@ -436,18 +642,20 @@ function refreshDetailList(container, claimId) {
         const mon = d.moneda || 'PEN';
         const tc = mon === 'USD' && d.tipoCambio ? Number(d.tipoCambio).toFixed(3) : '-';
         const montoSoles = d.montoSoles ? formatMoney(d.montoSoles) : formatMoney(d.monto);
-        const evidenciaBtn = d.evidencia
-            ? `<button type="button" class="btn-icon view-evidence-btn" title="Ver evidencia" data-file="${esc(d.evidencia)}">📎</button>`
+        const evUrls = (d.evidencia || '').split(',').filter(Boolean);
+        const evidenciaBtn = evUrls.length
+            ? evUrls.map((u, i) => `<button type="button" class="btn-icon view-evidence-btn" title="Ver evidencia ${i + 1}" data-file="${esc(u)}">📎</button>`).join('')
             : '-';
         return `
             <tr>
                 <td>${covName}</td>
                 <td>${covMonto}</td>
+                <td style="color:#f59e0b;">${d.montoSiniestrado != null && d.montoSiniestrado !== '' ? formatMoney(d.montoSiniestrado) : '-'}</td>
                 <td>${formatMoney(d.monto)}</td>
                 <td>${mon}</td>
                 <td>${tc}</td>
                 <td>${montoSoles}</td>
-                <td>${evidenciaBtn}</td>
+                <td style="white-space:nowrap;">${evidenciaBtn}</td>
                 <td>
                     <button type="button" class="btn-icon primary edit-detail-btn" data-id="${esc(d.id)}" title="Editar">✏️</button>
                     <button type="button" class="btn-icon danger delete-detail-btn" data-id="${esc(d.id)}" title="Eliminar">🗑️</button>
@@ -458,13 +666,14 @@ function refreshDetailList(container, claimId) {
 
     listContent.innerHTML = `
         <table class="data-table">
-            <thead><tr><th>Cobertura</th><th>Mto. Cobertura</th><th>Mto. Reclamado</th><th>Moneda</th><th>T.C.</th><th>Mto. Soles</th><th>Evidencia</th><th>Acciones</th></tr></thead>
+            <thead><tr><th>Cobertura</th><th>Mto. Cobertura</th><th>Mto. Siniestrado</th><th>Mto. a Reclamar</th><th>Moneda</th><th>T.C.</th><th>Mto. Soles</th><th>Evidencias</th><th>Acciones</th></tr></thead>
             <tbody>${rows}</tbody>
         </table>
     `;
 
     totalDiv.style.display = '';
     totalDiv.innerHTML = `Monto Total del Reclamo (en Soles): <strong>S/ ${formatMoney(claim?.montoTotal)}</strong>`;
+    renderVueltaLauncher(container); // actualizar chips SIN RECLAMAR / reclamada
 
     listContent.querySelectorAll('.edit-detail-btn').forEach(btn => {
         btn.addEventListener('click', () => openDetailModal(container, claimId, btn.getAttribute('data-id')));
@@ -501,6 +710,16 @@ function esc(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+/** Miniatura de una evidencia: imagen real si es foto, ícono 📄 si es PDF/otro. */
+function miniaturaEv(url) {
+    const base = 'width:44px;height:44px;border-radius:6px;border:1px solid #334155;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;overflow:hidden;';
+    const limpio = String(url || '').split('?')[0].split('#')[0].toLowerCase();
+    const esImg = /^data:image\//i.test(url || '') || /\.(jpg|jpeg|png|webp|gif)$/i.test(limpio);
+    if (!url || !esImg) return `<span style="${base}background:#1f2937;color:#e2e8f0;">📄</span>`;
+    // Si la imagen falla al cargar, el envoltorio cae al ícono 📄 (sin comillas dobles en onerror).
+    return `<span style="${base}background:#fff;"><img src="${esc(url)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.style.background='#1f2937';this.replaceWith(document.createTextNode('📄'))"></span>`;
 }
 
 function formatMoney(value) {

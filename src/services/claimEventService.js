@@ -1,6 +1,7 @@
 import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { claimRepository } from '../repositories/claimRepository.js';
-import { handleEventForSteps } from './claimStepService.js';
+import { claimStepRepository } from '../repositories/claimStepRepository.js';
+import { handleEventForSteps, computeStepsState } from './claimStepService.js';
 
 /**
  * Servicio de dominio para gestión de eventos de seguimiento de reclamos.
@@ -19,7 +20,7 @@ import { handleEventForSteps } from './claimStepService.js';
  * @param {string} [stepId] - ID del paso del trámite al que pertenece el evento (opcional)
  * @returns {object} { success, event } o { success: false, errors }
  */
-export function addClaimEvent(claimId, date, description, observacion, evidence, diasEspera, tipoDias, eventoOrigenId, stepId) {
+export function addClaimEvent(claimId, date, description, observacion, evidence, diasEspera, tipoDias, eventoOrigenId, stepId, archivos) {
     const errors = [];
 
     // Validar claimId
@@ -64,6 +65,7 @@ export function addClaimEvent(claimId, date, description, observacion, evidence,
         descripcion: description,
         observacion: observacion.trim(),
         evidencia: evidence || null,
+        archivos: (Array.isArray(archivos) ? archivos.filter(Boolean).join(',') : archivos) || null,
         diasEspera: diasEspera || null,
         tipoDias: tipoDias || null,
         fechaVencimiento: fechaVencimiento,
@@ -173,6 +175,47 @@ export function updateClaimEvent(eventId, data) {
 
 
 /**
+ * Elimina un evento y restaura la consistencia de los pasos del trámite.
+ * Un evento pone su paso en 'en_curso' (o lo completa, si es informativo/seguimiento);
+ * al borrarlo hay que revertir ese efecto o el paso queda "colgado" sin alertar:
+ *  - Paso directo (event.stepId) que ya no tenga ningún evento → vuelve a 'pendiente'.
+ *  - Seguimiento (event.eventoOrigenId) que había completado un paso 'espera' y ya no
+ *    tenga otros seguimientos → ese paso vuelve a 'en_curso'.
+ * @param {string} eventId
+ * @returns {boolean} true si se eliminó
+ */
+export function deleteClaimEvent(eventId) {
+    const ev = claimEventRepository.getById(eventId);
+    if (!ev) return false;
+    const { stepId, eventoOrigenId } = ev;
+    claimEventRepository.delete(eventId);
+
+    // 1) Paso directo del evento borrado: si ya no le quedan eventos, no puede seguir
+    //    'en_curso' (ni 'completado' por informativo) → vuelve a 'pendiente'.
+    if (stepId) {
+        const step = claimStepRepository.getById(stepId);
+        if (step && step.estado !== 'pendiente') {
+            const quedanEventos = claimEventRepository.getAll().some(e => e.stepId === stepId);
+            if (!quedanEventos) {
+                claimStepRepository.update(stepId, { estado: 'pendiente', fechaCompletado: null });
+            }
+        }
+    }
+
+    // 2) Si el borrado era la respuesta (seguimiento) que había completado un paso de
+    //    espera, y no queda otra respuesta, ese paso vuelve a estar esperando ('en_curso').
+    if (eventoOrigenId) {
+        const origin = claimEventRepository.getById(eventoOrigenId);
+        const s2 = origin?.stepId ? claimStepRepository.getById(origin.stepId) : null;
+        if (s2 && s2.estado === 'completado' && s2.tipoPaso === 'espera') {
+            const otrosSeg = claimEventRepository.getAll().some(e => e.eventoOrigenId === eventoOrigenId);
+            if (!otrosSeg) claimStepRepository.update(s2.id, { estado: 'en_curso', fechaCompletado: null });
+        }
+    }
+    return true;
+}
+
+/**
  * Detecta reclamos activos (no Culminados) sin actividad reciente.
  * Umbral: >=7 días sin nuevo evento; reclamos sin ningún evento: >=3 días.
  * @returns {object[]} Lista ordenada por urgencia descendente
@@ -227,13 +270,115 @@ export function getClaimsWithoutActivity() {
 }
 
 /**
+ * Plazos de los pasos ACTUALES pendientes de cada reclamo activo. El reloj de un
+ * paso arranca cuando se completó el paso anterior (o la fecha del reclamo si es el
+ * primero); el plazo es el diasEspera/tipoDias configurado en "Pasos por Banco".
+ * READ-ONLY. Devuelve el paso actual pendiente apenas se activa (con su cuenta
+ * regresiva), y su estado según el plazo (Pendiente / Vence hoy / Vencido).
+ * @returns {{claimId:string, pasoNombre:string, estadoAlerta:'Vencido'|'Vence hoy'|'Pendiente', diasRestantes:number}[]}
+ */
+export function getPendingStepDeadlines() {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const claims = claimRepository.getAll().filter(c => c.estado !== 'Culminado');
+    // Índice de pasos por reclamo (una sola pasada)
+    const stepsByClaim = new Map();
+    for (const s of claimStepRepository.getAll()) {
+        const arr = stepsByClaim.get(s.reclamoId);
+        if (arr) arr.push(s); else stepsByClaim.set(s.reclamoId, [s]);
+    }
+    // Pasos que YA tienen un evento con plazo propio: ese evento ya alerta por
+    // getEventsWithDeadline, así que no los volvemos a contar aquí. Un paso 'en_curso'
+    // cuyo evento fue borrado (o que nunca tuvo plazo) NO está en este set → se trata
+    // como pendiente y recupera su alerta con el plazo de "Pasos por Banco".
+    const stepsConEventoPlazo = new Set();
+    for (const e of claimEventRepository.getAll()) {
+        if (e.stepId && e.fechaVencimiento) stepsConEventoPlazo.add(e.stepId);
+    }
+    const out = [];
+    for (const claim of claims) {
+        const steps = stepsByClaim.get(claim.id) || [];
+        if (!steps.length) continue;
+        const st = computeStepsState(steps);
+        if (st.tramiteCompleto) continue;
+        // Activación = última fecha en que se completó un paso (cuando el actual pasó a serlo);
+        // si aún no hay pasos completados, se cuenta desde la fecha del reclamo.
+        const completadas = steps.filter(s => s.estado === 'completado' && s.fechaCompletado)
+            .map(s => s.fechaCompletado).sort();
+        const activacion = completadas.length ? completadas[completadas.length - 1]
+            : (claim.fecha ? claim.fecha + 'T00:00:00' : null);
+        if (!activacion) continue;
+        const base = String(activacion).slice(0, 10);
+        for (const paso of st.pasosActuales) {
+            if (paso.estado === 'completado') continue;      // no debería (son incompletos), defensivo
+            if (stepsConEventoPlazo.has(paso.id)) continue;  // ya alerta por su propio evento con plazo
+            const dias = Number(paso.diasEspera);
+            if (!Number.isFinite(dias) || dias <= 0) continue; // sin plazo → lo cubre "dormido"
+            const venc = calcularFechaVencimiento(base, dias, paso.tipoDias);
+            const v = new Date(venc); v.setHours(0, 0, 0, 0);
+            const diasRestantes = Math.ceil((v - today) / 86400000);
+            out.push({
+                claimId: claim.id,
+                pasoNombre: paso.nombre,
+                estadoAlerta: diasRestantes < 0 ? 'Vencido' : diasRestantes === 0 ? 'Vence hoy' : 'Pendiente',
+                diasRestantes,
+            });
+        }
+    }
+    return out;
+}
+
+/**
+ * Reclamos "dormidos": activos con >= umbral días sin ningún evento.
+ * READ-ONLY (no instancia pasos). Incluye el paso actual (si hay pasos) y si el
+ * trámite ya está completo (solo falta culminar — también es un caso olvidado).
+ * @param {number} umbral - días sin actividad para considerarlo dormido
+ * @returns {object[]} ordenados por días sin actividad descendente
+ */
+export function getDormantClaims(umbral) {
+    const claims = claimRepository.getAll().filter(c => c.estado !== 'Culminado');
+    // Índice de eventos por reclamo en una sola pasada (evita O(reclamos × eventos))
+    const eventsByClaim = new Map();
+    for (const e of claimEventRepository.getAll()) {
+        const arr = eventsByClaim.get(e.reclamoId);
+        if (arr) arr.push(e); else eventsByClaim.set(e.reclamoId, [e]);
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const result = [];
+    for (const claim of claims) {
+        const evs = eventsByClaim.get(claim.id) || [];
+        const latest = evs.slice().sort(
+            (a, b) => new Date(b.fechaRegistro || b.fecha) - new Date(a.fechaRegistro || a.fecha)
+        )[0] || null;
+        const base = latest
+            ? new Date(latest.fechaRegistro || latest.fecha)
+            : new Date(claim.fecha ? claim.fecha + 'T00:00:00' : today);
+        base.setHours(0, 0, 0, 0);
+        const diasSinActividad = Math.floor((today - base) / 86400000);
+        if (diasSinActividad < umbral) continue;
+
+        const steps = claimStepRepository.findByClaimId(claim.id);
+        const st = steps.length ? computeStepsState(steps) : null;
+        result.push({
+            ...claim,
+            diasSinActividad,
+            pasoActualNombre: st?.pasoActual?.nombre || null,
+            tramiteCompleto: st?.tramiteCompleto || false,
+            sinPasos: steps.length === 0,
+        });
+    }
+    return result.sort((a, b) => b.diasSinActividad - a.diasSinActividad);
+}
+
+/**
  * Calcula la fecha de vencimiento sumando días naturales o laborables.
  * @param {string} fechaBase - Fecha base ISO
  * @param {number} dias - Cantidad de días
  * @param {string} tipo - 'naturales' o 'laborables'
  * @returns {string} Fecha ISO de vencimiento
  */
-function calcularFechaVencimiento(fechaBase, dias, tipo) {
+export function calcularFechaVencimiento(fechaBase, dias, tipo) {
     const fecha = new Date(fechaBase);
     if (tipo === 'laborables') {
         let added = 0;
@@ -257,7 +402,9 @@ function calcularFechaVencimiento(fechaBase, dias, tipo) {
  */
 export function getEventsWithDeadline() {
     const all = claimEventRepository.getAll();
-    const withDeadline = all.filter(ev => ev.fechaVencimiento);
+    // Excluir eventos de reclamos Culminados: un trámite cerrado ya no debe alertar.
+    const culminados = new Set(claimRepository.getAll().filter(c => c.estado === 'Culminado').map(c => c.id));
+    const withDeadline = all.filter(ev => ev.fechaVencimiento && !culminados.has(ev.reclamoId));
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -268,9 +415,15 @@ export function getEventsWithDeadline() {
         const diffMs = venc - today;
         const diasRestantes = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
-        // Verificar si tiene evento de seguimiento (respuesta)
+        // Verificar si tiene evento de seguimiento (respuesta). También cuenta como
+        // respondido si su paso del trámite ya fue marcado como completado en la Guía
+        // (para que la alerta no siga sonando tras cerrar el paso).
         const seguimientos = all.filter(e => e.eventoOrigenId === ev.id);
-        const respondido = seguimientos.length > 0;
+        let respondido = seguimientos.length > 0;
+        if (!respondido && ev.stepId) {
+            const paso = claimStepRepository.getById(ev.stepId);
+            if (paso && paso.estado === 'completado') respondido = true;
+        }
 
         let estado;
         if (respondido) {

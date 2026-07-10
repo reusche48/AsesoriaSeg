@@ -3,6 +3,7 @@ import {
     getTemplates, createStepTemplate, updateStepTemplate, deleteStepTemplate,
     seedBancoTemplates, nextOrden, TIPOS_PASO,
 } from '../services/stepTemplateService.js';
+import { esOpcional } from '../services/claimStepService.js';
 import { auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, clearModalErrors, showModalAlert } from './modalHelper.js';
 import { confirmarEliminacion } from '../utils.js';
@@ -73,7 +74,7 @@ function refreshStepList(container) {
         return `<tr>
             <td style="text-align:center;color:#94a3b8;">${esc(s.orden)}</td>
             <td>${esc(s.nombre)}</td>
-            <td>${TIPO_LABEL[s.tipoPaso] || esc(s.tipoPaso)}</td>
+            <td>${TIPO_LABEL[s.tipoPaso] || esc(s.tipoPaso)}${esOpcional(s) ? ' <span style="background:#1f2937;color:#9ca3af;border-radius:99px;padding:1px 8px;font-size:0.72rem;">opcional</span>' : ''}</td>
             <td>${plazo}</td>
             <td style="max-width:280px;color:#9ca3af;font-size:0.85rem;">${esc(s.descripcion || '')}</td>
             <td>${auditLinkHtml(s)}</td>
@@ -119,7 +120,7 @@ function openStepForm(container, step) {
             <div class="form-row">
                 <div class="form-group" style="flex:0 0 90px;">
                     <label>Orden</label>
-                    <input type="number" id="step-orden" min="1" step="1" value="${esc(ordenDefault)}">
+                    <input type="number" id="step-orden" min="0" step="0.1" value="${esc(ordenDefault)}" title="Entero = etapa que salta junta. Decimal ordena dentro de la etapa (ej. 1, 1.5).">
                 </div>
                 <div class="form-group" data-field="nombre" style="flex:1;">
                     <label>Nombre del paso *</label>
@@ -150,6 +151,12 @@ function openStepForm(container, step) {
                     </select>
                 </div>
             </div>
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal;cursor:pointer;">
+                    <input type="checkbox" id="step-opcional" ${esOpcional(step) ? 'checked' : ''} style="width:auto;margin:0;flex:0 0 auto;">
+                    <span>Paso opcional (no bloquea avanzar de etapa)</span>
+                </label>
+            </div>
         `,
         onOpen: (overlay) => {
             const tipoSel = overlay.querySelector('#step-tipo');
@@ -170,6 +177,7 @@ function openStepForm(container, step) {
                 tipoPaso: form.querySelector('#step-tipo').value,
                 diasEspera: form.querySelector('#step-dias').value,
                 tipoDias: form.querySelector('#step-tipodias').value,
+                opcional: form.querySelector('#step-opcional').checked,
             };
             const result = editing ? updateStepTemplate(step.id, data) : createStepTemplate(data);
             if (result.success) { closeFormModal(); refreshStepList(container); }

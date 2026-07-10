@@ -6,6 +6,7 @@ import { bankRepository } from '../repositories/bankRepository.js';
 import { bankAccountRepository } from '../repositories/bankAccountRepository.js';
 import { cardRepository } from '../repositories/cardRepository.js';
 import { coverageRepository } from '../repositories/coverageRepository.js';
+import { ensureClaimSteps } from './claimStepService.js';
 
 /**
  * Servicio de dominio para gestión de reclamos y detalles de reclamo.
@@ -64,6 +65,10 @@ export function createClaim(incidentId, bankId, date, observations, evidence) {
         estado: 'Pendiente',
     });
 
+    // Instanciar de inmediato los pasos del trámite del banco (así la Guía y las
+    // alertas los ven sin necesidad de visitar la Guía primero).
+    try { ensureClaimSteps(claim.id); } catch (e) { /* sin plantillas: no bloquear la creación */ }
+
     return { success: true, claim };
 }
 
@@ -78,7 +83,7 @@ export function createClaim(incidentId, bankId, date, observations, evidence) {
  * @param {string} [evidence] - Evidencia como DataURL (opcional)
  * @returns {object} { success, detail, claimTotal } o { success: false, errors }
  */
-export function addClaimDetail(claimId, coverageId, amount, moneda, tipoCambio, evidence) {
+export function addClaimDetail(claimId, coverageId, amount, moneda, tipoCambio, evidence, montoSiniestrado = null) {
     const errors = [];
 
     if (!claimId) {
@@ -117,6 +122,7 @@ export function addClaimDetail(claimId, coverageId, amount, moneda, tipoCambio, 
         reclamoId: claimId,
         coberturaId: coverageId,
         monto: amount,
+        montoSiniestrado: (typeof montoSiniestrado === 'number' && montoSiniestrado > 0) ? montoSiniestrado : null,
         moneda: mon,
         tipoCambio: mon === 'USD' ? tipoCambio : null,
         montoSoles: montoSoles,
@@ -136,7 +142,7 @@ export function addClaimDetail(claimId, coverageId, amount, moneda, tipoCambio, 
 /**
  * Modifica un detalle de reclamo y recalcula el total.
  */
-export function updateClaimDetail(claimDetailId, coverageId, amount, moneda, tipoCambio, evidence) {
+export function updateClaimDetail(claimDetailId, coverageId, amount, moneda, tipoCambio, evidence, montoSiniestrado = null) {
     const errors = [];
 
     let existingDetail = null;
@@ -175,6 +181,7 @@ export function updateClaimDetail(claimDetailId, coverageId, amount, moneda, tip
     const detail = claimDetailRepository.update(claimDetailId, {
         coberturaId: coverageId,
         monto: amount,
+        montoSiniestrado: (typeof montoSiniestrado === 'number' && montoSiniestrado > 0) ? montoSiniestrado : null,
         moneda: mon,
         tipoCambio: mon === 'USD' ? tipoCambio : null,
         montoSoles: montoSoles,
@@ -286,12 +293,36 @@ const STATE_EVENT_DESC = {
 };
 
 /**
+ * Reabre un reclamo Culminado por error: vuelve a "En Proceso" y deja constancia
+ * en el historial. No borra nada de lo registrado.
+ */
+export function reopenClaim(claimId) {
+    const claim = claimRepository.getById(claimId);
+    if (!claim) return { success: false, errors: [{ message: 'Reclamo no encontrado.' }] };
+    if (claim.estado !== 'Culminado') return { success: false, errors: [{ message: 'El reclamo no está culminado.' }] };
+    claimRepository.update(claimId, { estado: 'En Proceso' });
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const nowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    claimEventRepository.save({
+        reclamoId: claimId,
+        fecha: nowStr,
+        descripcion: 'Avance del reclamo',
+        observacion: 'Reclamo reabierto (se había culminado por error).',
+        evidencia: null, diasEspera: null, tipoDias: null, fechaVencimiento: null, eventoOrigenId: null,
+    });
+    return { success: true };
+}
+
+/**
  * Avanza el estado del reclamo al siguiente en el flujo y registra un evento automático.
  * @param {string} claimId
  * @param {string} observacion - Observación para el evento automático
+ * @param {string} [evidencia] - Evidencia (URL) para el evento automático (opcional)
+ * @param {string} [resultado] - Al culminar: 'positivo' (indemnizado) o 'negativo' (rechazado)
  * @returns {{ success: boolean, newState?: string, errors?: object[] }}
  */
-export function changeClaimState(claimId, observacion) {
+export function changeClaimState(claimId, observacion, evidencia = null, resultado = null) {
     const claim = claimRepository.getById(claimId);
     if (!claim) return { success: false, errors: [{ message: 'Reclamo no encontrado.' }] };
 
@@ -307,12 +338,14 @@ export function changeClaimState(claimId, observacion) {
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
     const nowStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    let descripcion = STATE_EVENT_DESC[newState] || 'Avance del reclamo';
+    if (newState === 'Culminado' && resultado === 'negativo') descripcion = 'Reclamo rechazado';
     claimEventRepository.save({
         reclamoId: claimId,
         fecha: nowStr,
-        descripcion: STATE_EVENT_DESC[newState] || 'Avance del reclamo',
+        descripcion,
         observacion: observacion || `Estado cambiado a ${newState} automáticamente.`,
-        evidencia: null,
+        evidencia: evidencia || null,
         diasEspera: null,
         tipoDias: null,
         fechaVencimiento: null,

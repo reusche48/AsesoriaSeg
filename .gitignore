@@ -3,5 +3,6 @@ node_modules/
 Thumbs.db
 *.log
 config.php
+deploy.secrets.ps1
 .env
 uploads/

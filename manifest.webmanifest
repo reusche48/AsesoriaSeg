@@ -2,7 +2,7 @@
   "name": "AsesoriaSeg",
   "short_name": "AsesoriaSeg",
   "description": "Sistema de asesoría de seguros de protección de tarjetas",
-  "start_url": "./",
+  "start_url": "./#vuelta",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

@@ -2,9 +2,12 @@ import { incidentRepository } from '../repositories/incidentRepository.js';
 import { claimRepository } from '../repositories/claimRepository.js';
 import { claimDetailRepository } from '../repositories/claimDetailRepository.js';
 import { claimEventRepository } from '../repositories/claimEventRepository.js';
+import { claimStepRepository } from '../repositories/claimStepRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
+import { vueltaRepository } from '../repositories/vueltaRepository.js';
 import { validatePoliceReportFile } from '../validators/validators.js';
+import { loadCollections } from '../storage.js';
 
 /**
  * Servicio de dominio para gestión de siniestros.
@@ -234,6 +237,36 @@ export function getPendingClaimBanks() {
 }
 
 /**
+ * Elimina un siniestro COMPLETO (solo admin; el servidor audita cada eliminación):
+ * borra sus reclamos con todo lo que cuelga de ellos (eventos, pasos, coberturas)
+ * y al final el siniestro. Pensado para rehacer un registro equivocado.
+ * @param {string} incidentId
+ * @returns {Promise<{success: boolean, borrado?: object, message?: string}>}
+ */
+export async function deleteIncidentCascade(incidentId) {
+    const incident = incidentRepository.getById(incidentId);
+    if (!incident) return { success: false, message: 'El siniestro no fue encontrado.' };
+    // Recargar del servidor para no dejar huérfanos por caché incompleto
+    try { await loadCollections(['claims', 'claimDetails', 'claimEvents', 'claimSteps', 'vueltas']); } catch (e) { /* seguir con caché */ }
+
+    const claims = claimRepository.findByIncidentId(incidentId);
+    const borrado = { reclamos: claims.length, eventos: 0, pasos: 0, coberturas: 0, vueltasLiberadas: 0 };
+    for (const claim of claims) {
+        for (const ev of claimEventRepository.findByClaimId(claim.id)) { claimEventRepository.delete(ev.id); borrado.eventos++; }
+        for (const st of claimStepRepository.findByClaimId(claim.id)) { claimStepRepository.delete(st.id); borrado.pasos++; }
+        for (const det of claimDetailRepository.findByClaimId(claim.id)) { claimDetailRepository.delete(det.id); borrado.coberturas++; }
+        claimRepository.delete(claim.id);
+    }
+    // Liberar la vuelta amarrada a este siniestro (podrá re-amarrarse al rehacer el registro)
+    for (const v of vueltaRepository.getAll().filter(x => x.siniestroId === incidentId)) {
+        vueltaRepository.update(v.id, { siniestroId: null });
+        borrado.vueltasLiberadas++;
+    }
+    incidentRepository.delete(incidentId);
+    return { success: true, borrado };
+}
+
+/**
  * Elimina un reclamo solo si no tiene eventos asociados.
  * También elimina sus detalles (coberturas reclamadas).
  * @param {string} claimId - ID del reclamo
@@ -247,13 +280,15 @@ export function deleteClaim(claimId) {
 
     const events = claimEventRepository.findByClaimId(claimId);
     if (events.length > 0) {
-        return { success: false, message: 'No se puede eliminar el reclamo porque tiene eventos registrados.' };
+        return { success: false, message: 'No se puede eliminar el reclamo porque tiene eventos registrados. Elimina primero los eventos.' };
     }
 
-    // Eliminar detalles del reclamo primero
-    const details = claimDetailRepository.findByClaimId(claimId);
-    for (const detail of details) {
+    // Eliminar detalles (coberturas) y pasos del reclamo antes que el reclamo.
+    for (const detail of claimDetailRepository.findByClaimId(claimId)) {
         claimDetailRepository.delete(detail.id);
+    }
+    for (const step of claimStepRepository.findByClaimId(claimId)) {
+        claimStepRepository.delete(step.id);
     }
 
     claimRepository.delete(claimId);

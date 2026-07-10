@@ -1,9 +1,10 @@
-import { addClaimEvent, getClaimEvents, getLatestEvents, updateClaimEvent } from '../services/claimEventService.js';
+import { addClaimEvent, getClaimEvents, getLatestEvents, updateClaimEvent, deleteClaimEvent } from '../services/claimEventService.js';
 import { claimRepository } from '../repositories/claimRepository.js';
 import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
+import { claimStepRepository } from '../repositories/claimStepRepository.js';
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
@@ -129,6 +130,13 @@ function _refreshCurrentEventView(container) {
     const claimId = container.querySelector('#event-claim-id')?.value;
     if (claimId) refreshEventList(container, claimId);
     else showLatestEvents(container);
+}
+
+/** Nombre del paso del trámite al que pertenece el evento (o "—" si no viene de un paso). */
+function pasoLabel(ev) {
+    if (!ev.stepId) return '—';
+    const s = claimStepRepository.getById(ev.stepId);
+    return s ? s.nombre : '—';
 }
 
 function buildClaimLabel(claim) {
@@ -428,6 +436,7 @@ function exportEvents(container) {
             'Días transcurridos (laborables)': t ? t.laborables : '',
             'Cliente': info.clientLabel,
             'Banco': info.bankLabel,
+            'Paso': pasoLabel(ev),
             'Descripción': ev.descripcion || '',
             'Observación': ev.observacion || '',
             'Días de espera': ev.diasEspera || '',
@@ -519,6 +528,7 @@ function renderEventTable(container, events, showClaimInfo) {
         return `
             <tr>
                 ${claimCell}
+                <td>${escapeHtml(pasoLabel(ev))}</td>
                 <td>${escapeHtml(fechaStr)}</td>
                 <td style="white-space:nowrap;">${transcurridoCell}</td>
                 <td>${escapeHtml(ev.descripcion)}</td>
@@ -535,7 +545,7 @@ function renderEventTable(container, events, showClaimInfo) {
 
     listContent.innerHTML = `
         <table class="data-table">
-            <thead><tr>${headerExtra}<th>Fecha y Hora</th><th title="Días naturales / días laborables transcurridos desde el evento hasta hoy">Transcurrido<br><span style="font-weight:normal;font-size:0.7rem;color:#9ca3af;">nat./lab.</span></th><th>Descripción</th><th>Observación</th><th>Evidencia</th><th>Registro</th><th>Acciones</th></tr></thead>
+            <thead><tr>${headerExtra}<th>Paso</th><th>Fecha y Hora</th><th title="Días naturales / días laborables transcurridos desde el evento hasta hoy">Transcurrido<br><span style="font-weight:normal;font-size:0.7rem;color:#9ca3af;">nat./lab.</span></th><th>Descripción</th><th>Observación</th><th>Evidencia</th><th>Registro</th><th>Acciones</th></tr></thead>
             <tbody>${rows}</tbody>
         </table>
     `;
@@ -562,7 +572,7 @@ function renderEventTable(container, events, showClaimInfo) {
             const fechaTxt = ev ? new Date(ev.fecha).toLocaleDateString('es-PE') : '';
             const label = ev ? `"${ev.descripcion || 'evento'}" (${fechaTxt})` : 'este evento';
             if (!confirm(`¿Eliminar ${label}?\n\nLa eliminación quedará registrada en auditoría (quién y cuándo). Esta acción no se puede deshacer.`)) return;
-            claimEventRepository.delete(id);
+            deleteClaimEvent(id);
             const mainClaimId = container.querySelector('#event-claim-id')?.value;
             if (mainClaimId) refreshEventList(container, mainClaimId);
             else showLatestEvents(container);

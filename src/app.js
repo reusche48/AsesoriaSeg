@@ -2,7 +2,8 @@
 // Implementa hash routing, login y control de acceso por permisos
 
 import { initStorage, loadSectionData, getCollection } from './storage.js';
-import { login, logout, restoreSession, getSession, hasAccess, getAllowedScreens, isSessionExpired } from './auth.js';
+import { login, logout, restoreSession, getSession, hasAccess, getAllowedScreens, isSessionExpired,
+    verifySecurityCode, getSecurityCodeStatus, setSecurityCode, disableSecurityCode } from './auth.js';
 import { renderClientSection } from './ui/clientUI.js';
 import { renderBankSection } from './ui/bankUI.js';
 import { renderCardSection } from './ui/cardUI.js';
@@ -25,6 +26,8 @@ import { renderStepTemplateSection } from './ui/stepTemplateUI.js';
 import { renderGuiaSection } from './ui/guiaUI.js';
 import { renderPaymentSection } from './ui/paymentUI.js';
 import { renderVueltaSection } from './ui/vueltaUI.js';
+import { renderRechargeSection } from './ui/rechargeUI.js';
+import { renderCuadreSection } from './ui/cuadreUI.js';
 import { mountClientContextBar } from './ui/clientContextBar.js';
 import { clearActiveClient } from './state/clientContext.js';
 
@@ -52,6 +55,8 @@ const routes = {
     guia: renderGuiaSection,
     pagos: renderPaymentSection,
     vuelta: renderVueltaSection,
+    recargas: renderRechargeSection,
+    cuadre: renderCuadreSection,
 };
 
 const _S = 'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
@@ -83,33 +88,40 @@ const NAV_LABELS = {
     guia:              `${ico('<polygon points="3 11 22 2 13 21 11 13 3 11"/>')} Guía`,
     pagos:             `${ico('<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>')} Pagos Seguro`,
     vuelta:            `${ico('<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>')} La Vuelta`,
+    recargas:          `${ico('<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>')} Recargas`,
+    cuadre:            `${ico('<path d="M12 3v18"/><path d="M3 7h18"/><path d="m6 7-3 5a3 3 0 0 0 6 0z"/><path d="m18 7-3 5a3 3 0 0 0 6 0z"/><path d="M7 21h10"/>')} Cuadre de Cuentas`,
 };
 
 /** Orden de items en el sidebar */
 const SIDEBAR_ORDER = [
-    'dashboard',
     'clientes',
     'guia',
     'fichaCliente',
-    'tarjetasSinSeguro',
     'bancos',
     'tarjetas',
     'seguros',
     'coberturas',
-    'siniestros',
     'reclamos',
     'eventos',
-    'pendientes',
-    'seguimiento',
     'alertas',
     'plantillasPasos',
     'pagos',
     'vuelta',
+    'recargas',
+    'cuadre',
     'adelantos',
     'consultaAdelantos',
+    // Consulta / configuración (menos usados en el día a día)
+    'siniestros',
     'usuarios',
     'actividad',
 ];
+
+/** ¿La app está abierta como PWA instalada (ícono de pantalla de inicio)? */
+function isStandaloneApp() {
+    return window.navigator.standalone === true
+        || window.matchMedia('(display-mode: standalone)').matches;
+}
 
 /** Página de inicio por defecto: Alertas (para todos los usuarios con acceso). */
 function defaultHomeSection() {
@@ -178,6 +190,9 @@ function buildNavigation() {
                     <button type="button" class="sidebar-user-btn" id="change-pwd-btn">
                         ${ico('<path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/>')} Cambiar contraseña
                     </button>
+                    <button type="button" class="sidebar-user-btn" id="security-code-btn">
+                        ${ico('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>')} Código de seguridad
+                    </button>
                     <button type="button" class="sidebar-user-btn sidebar-user-btn--danger" id="logout-btn">
                         ${ico('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>')} Cerrar sesión
                     </button>
@@ -193,6 +208,10 @@ function buildNavigation() {
 
     document.getElementById('change-pwd-btn')?.addEventListener('click', () => {
         showChangePasswordPopup();
+    });
+
+    document.getElementById('security-code-btn')?.addEventListener('click', () => {
+        showSecurityCodePopup();
     });
 }
 
@@ -322,6 +341,94 @@ function escapeHtmlGlobal(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+/** Configuración self-service del código de seguridad (2º factor). */
+async function showSecurityCodePopup() {
+    const prev = document.querySelector('.audit-popup-overlay');
+    if (prev) prev.remove();
+    const session = getSession();
+    if (!session) return;
+
+    const OPCIONES = [
+        { v: -3, t: 'Tres antes' }, { v: -2, t: 'Dos antes' }, { v: -1, t: 'Uno antes' },
+        { v: 0, t: 'El mismo' },
+        { v: 1, t: 'Uno después' }, { v: 2, t: 'Dos después' }, { v: 3, t: 'Tres después' },
+    ];
+    const sel = (id, def) => `<select id="${id}" style="padding:0.4rem;border:1px solid #334155;border-radius:6px;background:#0f172a;color:#e2e8f0;">
+        ${OPCIONES.map(o => `<option value="${o.v}" ${o.v === def ? 'selected' : ''}>${o.t}</option>`).join('')}</select>`;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'audit-popup-overlay';
+    overlay.innerHTML = `
+        <div class="audit-popup" style="min-width:340px;max-width:440px;">
+            <button class="audit-close">&times;</button>
+            <h3>🔒 Código de seguridad</h3>
+            <p style="color:#9ca3af;font-size:0.85rem;line-height:1.4;">
+                Al iniciar sesión verás lo que parece un <strong>captcha</strong> con 4 números: uno tendrá un
+                <strong style="color:#e8a13a;">color distinto</strong> — ese es el tuyo. Tu código se forma
+                aplicando tu regla a ese número (con vuelta: si es 0, "uno antes" es 9).
+                <br><span style="color:#6b7280;">Nadie más sabe que es una regla: si escriben los números tal cual, no entran.</span>
+            </p>
+            <div id="scode-status" style="margin:0.4rem 0;color:#9ca3af;font-size:0.85rem;">Cargando…</div>
+            <div style="display:flex;gap:0.6rem;align-items:center;margin:0.6rem 0;flex-wrap:wrap;">
+                <div><div style="color:#6b7280;font-size:0.72rem;">1ª cifra</div>${sel('scode-1', -1)}</div>
+                <div><div style="color:#6b7280;font-size:0.72rem;">2ª cifra</div>${sel('scode-2', 0)}</div>
+                <div><div style="color:#6b7280;font-size:0.72rem;">3ª cifra</div>${sel('scode-3', 1)}</div>
+            </div>
+            <div id="scode-preview" style="background:#0b1220;border:1px solid #1f2937;border-radius:8px;padding:0.5rem 0.7rem;color:#cbd5e1;font-size:0.9rem;margin-bottom:0.6rem;"></div>
+            <div id="scode-alert"></div>
+            <button type="button" id="scode-save" class="btn btn-primary" style="width:100%;">Guardar código</button>
+            <button type="button" id="scode-disable" style="width:100%;margin-top:0.5rem;background:none;border:1px solid #7f1d1d;color:#fca5a5;border-radius:8px;padding:0.4rem;cursor:pointer;display:none;">Desactivar el código de seguridad</button>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('.audit-close').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    const offsets = () => [1, 2, 3].map(i => parseInt(overlay.querySelector('#scode-' + i).value, 10));
+    const preview = () => {
+        const os = offsets();
+        const ejemplo = os.map(o => (((8 + o) % 10) + 10) % 10).join('');
+        overlay.querySelector('#scode-preview').innerHTML = `Ejemplo: si el número de color distinto es el <strong style="color:#e8a13a;">8</strong>, tu código será <strong style="color:#a78bfa;">${ejemplo}</strong>`;
+    };
+    [1, 2, 3].forEach(i => overlay.querySelector('#scode-' + i).addEventListener('change', preview));
+    preview();
+
+    // Estado actual
+    const disableBtn = overlay.querySelector('#scode-disable');
+    getSecurityCodeStatus().then(configured => {
+        overlay.querySelector('#scode-status').innerHTML = configured
+            ? '✅ Ya tienes un código configurado. Puedes cambiarlo abajo o desactivarlo.'
+            : 'Aún no tienes código configurado. Este segundo paso es opcional.';
+        disableBtn.style.display = configured ? '' : 'none';
+    });
+
+    overlay.querySelector('#scode-save').addEventListener('click', async () => {
+        const alertDiv = overlay.querySelector('#scode-alert');
+        alertDiv.innerHTML = '<div class="alert alert-info">Guardando…</div>';
+        const r = await setSecurityCode(offsets());
+        if (r.success) {
+            alertDiv.innerHTML = '<div class="alert alert-success">Código guardado. Se te pedirá al iniciar sesión.</div>';
+            disableBtn.style.display = '';
+        } else {
+            alertDiv.innerHTML = `<div class="alert alert-error">${r.error || 'Error al guardar.'}</div>`;
+        }
+    });
+
+    disableBtn.addEventListener('click', async () => {
+        const alertDiv = overlay.querySelector('#scode-alert');
+        alertDiv.innerHTML = '<div class="alert alert-info">Procesando…</div>';
+        const ok = await disableSecurityCode();
+        if (ok) {
+            alertDiv.innerHTML = '<div class="alert alert-success">Código de seguridad desactivado.</div>';
+            disableBtn.style.display = 'none';
+            overlay.querySelector('#scode-status').textContent = 'Aún no tienes código configurado. Este segundo paso es opcional.';
+        } else {
+            alertDiv.innerHTML = '<div class="alert alert-error">No se pudo desactivar.</div>';
+        }
+    });
 }
 
 /** Muestra popup para cambiar contraseña del usuario logueado */
@@ -458,12 +565,211 @@ function showLoginScreen() {
         alertDiv.innerHTML = '<div class="alert alert-info">Verificando...</div>';
         const result = await login(usuario, clave);
 
-        if (result.success) {
+        if (result.success && result.twofa) {
+            showSecurityCodeStep(result.challenge, result.challengeToken);
+        } else if (result.success) {
             await startApp();
         } else {
             alertDiv.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
         }
     });
+}
+
+/**
+ * Paso 2 del login, DISFRAZADO como un captcha. No revela el mecanismo: quien no
+ * conoce su regla escribirá los números tal cual (como un captcha) → código incorrecto
+ * → menú falso. El usuario legítimo aplica su regla al dígito de color distinto.
+ */
+function showSecurityCodeStep(challenge, challengeToken) {
+    const container = document.getElementById('app-container');
+    // Colores tipo captcha; el dígito "resaltado" va en un color distinto (la pista discreta).
+    const coloresBase = ['#9aa4b2', '#c0c7d1', '#aeb6c2', '#b6bdc9'];
+    const rots = [-9, 6, -5, 8, -7, 4];
+    const digitsHtml = challenge.digits.map((d, i) => {
+        const esPista = i === challenge.highlight;
+        const color = esPista ? '#e8a13a' : coloresBase[i % coloresBase.length];
+        return `<span style="display:inline-block;transform:rotate(${rots[i % rots.length]}deg);font-family:'Courier New',monospace;font-size:2.1rem;font-weight:800;color:${color};margin:0 7px;text-shadow:1px 1px 0 rgba(0,0,0,0.4);">${d}</span>`;
+    }).join('');
+    const captchaBg = 'background:#0b1220;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,0.04) 0 2px,transparent 2px 7px),repeating-linear-gradient(-30deg,rgba(255,255,255,0.03) 0 1px,transparent 1px 9px);';
+    container.innerHTML = `
+        <div style="max-width:400px;margin:10vh auto;padding:2rem;background:#111827;border:1px solid #1f2937;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+            <div style="text-align:center;margin-bottom:1.1rem;">
+                <h2 style="font-size:1.2rem;color:#f1f5f9;margin-bottom:0.25rem;">Verificación de seguridad</h2>
+                <p style="font-size:0.85rem;color:#9ca3af;">Ingrese el código captcha para continuar.</p>
+            </div>
+            <div style="text-align:center;margin:1rem 0;padding:0.9rem 0.5rem;border:1px solid #1f2937;border-radius:10px;${captchaBg}user-select:none;">${digitsHtml}</div>
+            <form id="sec-form" novalidate>
+                <input type="text" inputmode="numeric" autocomplete="off" id="sec-codigo" placeholder="Código captcha"
+                    style="width:100%;text-align:center;font-size:1.25rem;letter-spacing:0.35em;padding:0.6rem;border:1px solid #334155;border-radius:8px;background:#0f172a;color:#e2e8f0;">
+                <div id="sec-alert" style="margin:0.6rem 0;"></div>
+                <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:0.65rem;">Verificar</button>
+            </form>
+            <button type="button" id="sec-cancel" style="width:100%;margin-top:0.6rem;background:none;border:none;color:#6b7280;cursor:pointer;font-size:0.85rem;">← Volver</button>
+        </div>`;
+
+    container.querySelector('#sec-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const codigo = container.querySelector('#sec-codigo').value.trim();
+        const alertDiv = container.querySelector('#sec-alert');
+        if (!codigo) { alertDiv.innerHTML = '<div class="alert alert-error">Ingrese el código.</div>'; return; }
+        alertDiv.innerHTML = '<div class="alert alert-info">Verificando...</div>';
+        const r = await verifySecurityCode(challengeToken, codigo);
+        if (r.success) {
+            await startApp();
+        } else if (r.decoy) {
+            showDecoyMenu();
+        } else {
+            alertDiv.innerHTML = `<div class="alert alert-error">${r.error || 'Error'}</div>`;
+        }
+    });
+    container.querySelector('#sec-cancel').addEventListener('click', () => showLoginScreen());
+}
+
+/**
+ * "Menú falso": cuando el código de seguridad es incorrecto se muestra un sistema de
+ * EMPEÑOS ficticio (todo estático, sin token, sin base de datos, sin acceso real a nada
+ * del sistema de asesoría). Es navegable para parecer legítimo.
+ */
+function showDecoyMenu() {
+    const sidebar = document.getElementById('sidebar');
+    const topbar = document.getElementById('topbar');
+    if (sidebar) sidebar.style.display = 'none';
+    if (topbar) topbar.style.display = 'none';
+    const container = document.getElementById('app-container');
+
+    // ── Paleta (violeta oscuro) ──
+    const C = { bg: '#0a0614', side: '#1a0533', side2: '#2e1065', card: '#17102b', bd: '#2e1065', accent: '#8b5cf6', txt: '#e9e5f2', mut: '#a99fc4' };
+    const money = n => 'S/ ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const pill = (t, col) => `<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:0.7rem;font-weight:700;background:${col}22;color:${col};">${t}</span>`;
+    const estPill = e => e === 'Vencido' ? pill('Vencido', '#f87171') : e === 'Por vencer' ? pill('Por vencer', '#fbbf24') : e === 'Rematado' ? pill('Rematado', '#94a3b8') : pill('Activo', '#34d399');
+
+    // ── Datos ficticios ──
+    const empenos = [
+        ['EMP-001042', 'María Quispe', 'Anillo de oro 18k 5.2g', 850, '10%', '12/07/2026', 'Activo'],
+        ['EMP-001041', 'José Ramírez', 'Laptop HP Core i5', 1200, '10%', '05/07/2026', 'Vencido'],
+        ['EMP-001040', 'Ana Torres', 'Cadena de oro 14k 8g', 620, '8%', '20/07/2026', 'Activo'],
+        ['EMP-001039', 'Luis Castro', 'iPhone 12 64GB', 1450, '10%', '09/07/2026', 'Por vencer'],
+        ['EMP-001038', 'Rosa Medina', 'Reloj Casio + pulsera plata', 340, '8%', '15/07/2026', 'Activo'],
+        ['EMP-001037', 'Pedro Salas', 'Televisor LG 43"', 700, '10%', '02/07/2026', 'Vencido'],
+    ];
+    const clientes = [
+        ['María Quispe', '45872103', '987 654 321', 2, 1470], ['José Ramírez', '40912385', '999 112 233', 1, 1320],
+        ['Ana Torres', '46551209', '955 887 001', 1, 620], ['Luis Castro', '41220987', '988 443 776', 3, 2890],
+        ['Rosa Medina', '47881230', '944 556 778', 1, 340], ['Pedro Salas', '09887654', '966 221 334', 2, 1540],
+    ];
+    const inventario = [
+        ['INV-2201', 'Anillo oro 18k 5.2g', 'Joyería', 'Bueno', 980, 'Disponible'], ['INV-2200', 'Laptop HP Core i5', 'Electrónica', 'Regular', 1400, 'En empeño'],
+        ['INV-2199', 'Cadena oro 14k 8g', 'Joyería', 'Bueno', 720, 'En empeño'], ['INV-2198', 'iPhone 12 64GB', 'Celulares', 'Bueno', 1600, 'En empeño'],
+        ['INV-2197', 'Televisor LG 43"', 'Electrónica', 'Regular', 820, 'Para remate'], ['INV-2196', 'Pulsera de plata 925', 'Joyería', 'Nuevo', 260, 'Disponible'],
+    ];
+    const pagos = [
+        ['08/07/2026', 'EMP-001041', 'José Ramírez', 'Interés mensual', 120, 'Efectivo'], ['08/07/2026', 'EMP-001040', 'Ana Torres', 'Renovación', 96, 'Yape'],
+        ['07/07/2026', 'EMP-001042', 'María Quispe', 'Interés mensual', 85, 'Efectivo'], ['07/07/2026', 'EMP-001035', 'Carla Ruiz', 'Cancelación total', 940, 'Transferencia'],
+        ['06/07/2026', 'EMP-001039', 'Luis Castro', 'Interés mensual', 145, 'Efectivo'],
+    ];
+
+    // ── Menú (igual estructura que un panel real) ──
+    const NAV = [
+        { s: 'Principal' }, { id: 'dashboard', i: '📊', l: 'Dashboard' }, { id: 'empenios', i: '🤝', l: 'Empeños' }, { id: 'aprobaciones', i: '🛡️', l: 'Aprobaciones' }, { id: 'pagos', i: '💵', l: 'Pagos' },
+        { s: 'Operaciones' }, { id: 'clientes', i: '👥', l: 'Clientes' }, { id: 'inventario', i: '📦', l: 'Inventario' }, { id: 'subastas', i: '🔨', l: 'Subastas' }, { id: 'ventas', i: '🛒', l: 'Ventas' },
+        { s: 'Finanzas' }, { id: 'tesoreria', i: '🏦', l: 'Tesorería' }, { id: 'gastos', i: '🧾', l: 'Gastos de Empresa' }, { id: 'inversion', i: '🪙', l: 'Inversión de Capital' },
+        { s: 'Sistema' }, { id: 'configuracion', i: '⚙️', l: 'Configuración' }, { id: 'usuarios', i: '🔐', l: 'Usuarios' }, { id: 'auditoria', i: '🕓', l: 'Auditoría' },
+    ];
+    const TITULOS = { dashboard: 'Dashboard', empenios: 'Empeños', aprobaciones: 'Aprobaciones', pagos: 'Pagos', clientes: 'Clientes', inventario: 'Inventario', subastas: 'Subastas', ventas: 'Ventas', tesoreria: 'Tesorería', gastos: 'Gastos de Empresa', inversion: 'Inversión de Capital', configuracion: 'Configuración', usuarios: 'Usuarios', auditoria: 'Auditoría' };
+
+    const th = t => `<th style="text-align:left;padding:0.55rem 0.85rem;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em;color:${C.mut};background:${C.side};">${t}</th>`;
+    const td = (v, extra = '') => `<td style="padding:0.6rem 0.85rem;font-size:0.83rem;color:${C.txt};border-top:1px solid ${C.bd};${extra}">${v}</td>`;
+    const tabla = (heads, rows) => `<div style="background:${C.card};border:1px solid ${C.bd};border-radius:12px;overflow:hidden;overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;min-width:560px;"><thead><tr>${heads.map(th).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    const kpi = (label, valor, sub, col) => `<div style="background:${C.card};border:1px solid ${C.bd};border-radius:12px;padding:0.9rem 1.1rem;flex:1;min-width:150px;">
+        <div style="color:${C.mut};font-size:0.76rem;">${label}</div>
+        <div style="color:${col};font-size:1.5rem;font-weight:800;margin-top:2px;">${valor}</div>
+        <div style="color:${C.mut};font-size:0.72rem;margin-top:2px;">${sub}</div></div>`;
+
+    function vistaDashboard() {
+        const barras = [62, 48, 75, 90, 68, 84];
+        const meses = ['Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul'];
+        return `
+            <div style="display:flex;gap:0.8rem;flex-wrap:wrap;margin-bottom:1rem;">
+                ${kpi('Empeños activos', '128', 'Deuda: ' + money(96420), '#a78bfa')}
+                ${kpi('Vencidos', '14', 'Deuda: ' + money(11280), '#f87171')}
+                ${kpi('Por vencer', '9', 'Próximos 7 días', '#fbbf24')}
+                ${kpi('Inventario', '213', 'Valor: ' + money(184300), '#34d399')}
+                ${kpi('Ventas del mes', money(24850), '32 operaciones', '#60a5fa')}
+            </div>
+            <div style="display:flex;gap:0.8rem;flex-wrap:wrap;">
+                <div style="flex:2;min-width:280px;background:${C.card};border:1px solid ${C.bd};border-radius:12px;padding:1rem;">
+                    <div style="color:${C.txt};font-weight:700;margin-bottom:0.8rem;">Empeños otorgados por mes</div>
+                    <div style="display:flex;align-items:flex-end;gap:14px;height:150px;">
+                        ${barras.map((h, i) => `<div style="flex:1;text-align:center;"><div style="height:${h * 1.4}px;background:linear-gradient(180deg,${C.accent},#6d28d9);border-radius:6px 6px 0 0;"></div><div style="color:${C.mut};font-size:0.72rem;margin-top:4px;">${meses[i]}</div></div>`).join('')}
+                    </div>
+                </div>
+                <div style="flex:1;min-width:220px;background:${C.card};border:1px solid ${C.bd};border-radius:12px;padding:1rem;">
+                    <div style="color:${C.txt};font-weight:700;margin-bottom:0.6rem;">Saldos bancarios</div>
+                    <div style="display:flex;justify-content:space-between;padding:0.35rem 0;color:${C.txt};font-size:0.85rem;border-bottom:1px solid ${C.bd};"><span>BCP · Corriente</span><b>${money(42180)}</b></div>
+                    <div style="display:flex;justify-content:space-between;padding:0.35rem 0;color:${C.txt};font-size:0.85rem;border-bottom:1px solid ${C.bd};"><span>BBVA · Ahorros</span><b>${money(18640)}</b></div>
+                    <div style="display:flex;justify-content:space-between;padding:0.35rem 0;color:${C.txt};font-size:0.85rem;"><span>Caja chica</span><b>${money(3250)}</b></div>
+                    <div style="margin-top:0.6rem;color:${C.mut};font-size:0.76rem;">Cobros hoy: <b style="color:#34d399;">${money(1820)}</b> · Pendientes: <b style="color:#fbbf24;">${money(4560)}</b></div>
+                </div>
+            </div>
+            <div style="color:${C.txt};font-weight:700;margin:1rem 0 0.6rem;">Vencimientos próximos</div>
+            ${tabla(['Contrato', 'Cliente', 'Artículo', 'Monto', 'Vence', 'Estado'], empenos.filter(e => e[6] !== 'Activo').map(e => `<tr>${td(e[0])}${td(e[1])}${td(e[2])}${td(money(e[3]))}${td(e[5])}${td(estPill(e[6]))}</tr>`).join(''))}`;
+    }
+    function vistaEmpenos() {
+        return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;flex-wrap:wrap;gap:0.5rem;">
+                <input placeholder="Buscar por contrato o cliente..." style="padding:0.5rem 0.7rem;border:1px solid ${C.bd};border-radius:8px;background:${C.side};color:${C.txt};min-width:240px;">
+                <button class="decoy-btn" style="background:${C.accent};color:#fff;border:none;border-radius:8px;padding:0.5rem 0.9rem;cursor:pointer;font-weight:600;">+ Nuevo empeño</button>
+            </div>
+            ${tabla(['Contrato', 'Cliente', 'Artículo', 'Préstamo', 'Interés', 'Vencimiento', 'Estado'], empenos.map(e => `<tr>${td('<b>' + e[0] + '</b>')}${td(e[1])}${td(e[2])}${td(money(e[3]))}${td(e[4])}${td(e[5])}${td(estPill(e[6]))}</tr>`).join(''))}`;
+    }
+    function vistaClientes() {
+        return tabla(['Cliente', 'DNI', 'Teléfono', 'Empeños activos', 'Deuda total'], clientes.map(c => `<tr>${td('<b>' + c[0] + '</b>')}${td(c[1])}${td(c[2])}${td(c[3])}${td(money(c[4]))}</tr>`).join(''));
+    }
+    function vistaInventario() {
+        const cond = { 'Disponible': '#34d399', 'En empeño': '#a78bfa', 'Para remate': '#fbbf24' };
+        return tabla(['Código', 'Artículo', 'Categoría', 'Condición', 'Avalúo', 'Estado'], inventario.map(x => `<tr>${td('<b>' + x[0] + '</b>')}${td(x[1])}${td(x[2])}${td(x[3])}${td(money(x[4]))}${td(pill(x[5], cond[x[5]] || '#94a3b8'))}</tr>`).join(''));
+    }
+    function vistaPagos() {
+        const met = { 'Efectivo': '#34d399', 'Yape': '#a78bfa', 'Transferencia': '#60a5fa' };
+        return tabla(['Fecha', 'Contrato', 'Cliente', 'Concepto', 'Monto', 'Método'], pagos.map(p => `<tr>${td(p[0])}${td('<b>' + p[1] + '</b>')}${td(p[2])}${td(p[3])}${td('<b style="color:#34d399;">' + money(p[4]) + '</b>')}${td(pill(p[5], met[p[5]] || '#94a3b8'))}</tr>`).join(''));
+    }
+    function vistaGenerica(id) {
+        return `<div style="background:${C.card};border:1px solid ${C.bd};border-radius:12px;padding:2.5rem;text-align:center;color:${C.mut};">
+            <div style="font-size:2rem;">📄</div><div style="margin-top:0.5rem;">Módulo <b style="color:${C.txt};">${TITULOS[id] || id}</b></div>
+            <div style="font-size:0.85rem;margin-top:0.3rem;">Sin registros en el periodo actual.</div></div>`;
+    }
+    const vista = id => id === 'dashboard' ? vistaDashboard() : id === 'empenios' ? vistaEmpenos() : id === 'clientes' ? vistaClientes()
+        : id === 'inventario' ? vistaInventario() : id === 'pagos' ? vistaPagos() : vistaGenerica(id);
+
+    function paintDecoy(active) {
+        const menu = NAV.map(n => n.s
+            ? `<div style="padding:0.9rem 1rem 0.3rem;color:${C.mut};font-size:0.68rem;text-transform:uppercase;letter-spacing:0.06em;">${n.s}</div>`
+            : `<div class="decoy-nav" data-id="${n.id}" style="display:flex;align-items:center;gap:0.6rem;padding:0.55rem 1rem;cursor:pointer;color:${active === n.id ? '#fff' : C.mut};${active === n.id ? 'background:' + C.side2 + ';border-left:3px solid ' + C.accent + ';' : 'border-left:3px solid transparent;'}"><span>${n.i}</span><span style="font-size:0.88rem;">${n.l}</span></div>`
+        ).join('');
+        container.innerHTML = `
+            <div style="display:flex;min-height:100vh;background:${C.bg};">
+                <aside style="width:230px;background:${C.side};flex-shrink:0;overflow-y:auto;max-height:100vh;">
+                    <div style="padding:1.1rem 1rem;display:flex;align-items:center;gap:0.55rem;border-bottom:1px solid ${C.side2};">
+                        <div style="width:34px;height:34px;border-radius:9px;background:${C.accent};display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🤝</div>
+                        <div><div style="color:#fff;font-weight:800;font-size:0.98rem;line-height:1;">Casa de Empeño</div><div style="color:${C.mut};font-size:0.7rem;">Suc. Centro</div></div>
+                    </div>
+                    ${menu}
+                </aside>
+                <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+                    <header style="display:flex;justify-content:space-between;align-items:center;padding:0.8rem 1.3rem;background:${C.side};border-bottom:1px solid ${C.side2};flex-wrap:wrap;gap:0.5rem;">
+                        <h2 style="margin:0;color:${C.txt};font-size:1.1rem;">${TITULOS[active] || 'Panel'}</h2>
+                        <div style="display:flex;align-items:center;gap:0.9rem;color:${C.mut};font-size:0.82rem;">
+                            <span>🔔</span><span>Miércoles, 08/07/2026</span>
+                            <span style="display:flex;align-items:center;gap:0.4rem;"><span style="width:28px;height:28px;border-radius:50%;background:${C.accent};display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:0.8rem;">C</span>Carlos M. · Gerente</span>
+                        </div>
+                    </header>
+                    <main style="padding:1.3rem;overflow-x:hidden;">${vista(active)}</main>
+                </div>
+            </div>`;
+        container.querySelectorAll('.decoy-nav').forEach(el => el.addEventListener('click', () => paintDecoy(el.getAttribute('data-id'))));
+        container.querySelectorAll('.decoy-btn').forEach(b => b.addEventListener('click', () => { b.textContent = 'Cargando...'; setTimeout(() => { b.textContent = '+ Nuevo empeño'; }, 1200); }));
+    }
+    paintDecoy('dashboard');
 }
 
 /** Inicia la app (tras login o al restaurar sesión). Siempre abre en la página de inicio. */
@@ -510,9 +816,12 @@ async function startApp() {
 
     window.addEventListener('hashchange', () => navigateTo(getCurrentSection()));
 
-    // Verificar expiración de sesión cada minuto
+    // Verificar expiración de sesión cada minuto.
+    // Solo actúa si esta pestaña tiene sesión Y la guardada realmente expiró
+    // (isSessionExpired relee localStorage: un login nuevo en otra pestaña
+    // re-sincroniza esta en lugar de cerrarla).
     setInterval(() => {
-        if (isSessionExpired()) {
+        if (getSession() && isSessionExpired()) {
             clearActiveClient();
             logout();
             alert('Su sesión ha expirado. Por favor inicie sesión nuevamente.');
@@ -520,9 +829,10 @@ async function startApp() {
         }
     }, 60 * 1000);
 
-    // Al ingresar al sistema (login o restaurar sesión) siempre abrir en la
-    // página de inicio (Alertas), ignorando un #seccion viejo en la URL.
-    const section = defaultHomeSection();
+    // Al ingresar al sistema (login o restaurar sesión) abrir en la página de
+    // inicio (Alertas), ignorando un #seccion viejo en la URL. Excepción: si la
+    // app está instalada como PWA (ícono del celular), arranca en "La Vuelta".
+    const section = (isStandaloneApp() && hasAccess('vuelta')) ? 'vuelta' : defaultHomeSection();
     window.location.hash = `#${section}`;
     navigateTo(section);
 }
@@ -531,12 +841,11 @@ async function startApp() {
 export function updateAlertsBadge() {
     const badge = document.getElementById('alerts-badge');
     if (!badge) return;
-    import('./services/claimEventService.js').then(({ getEventsWithDeadline, getClaimsWithoutActivity }) => {
+    import('./services/attentionService.js').then(({ getAtenderHoy }) => {
         try {
-            const vencidas = getEventsWithDeadline().filter(a => a.estadoAlerta === 'Vencido').length;
-            const criticas = getClaimsWithoutActivity()
-                .filter(a => a.nivelAlerta === 'Critico' || a.nivelAlerta === 'Sin eventos').length;
-            const total = vencidas + criticas;
+            // Solo lo urgente (vencidos + vence hoy + dormidos + denuncias); los pasos
+            // aún dentro de plazo ("Por hacer") se ven en la lista, no inflan el badge.
+            const total = getAtenderHoy().urgentes;
             badge.textContent = total;
             badge.style.display = total > 0 ? 'inline' : 'none';
         } catch (e) { /* ignorar si aún no hay datos */ }

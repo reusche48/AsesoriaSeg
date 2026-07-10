@@ -101,7 +101,7 @@ async function loadCollection(key) {
 }
 
 // Solo tablas livianas al login (banks ~1s, insurances ~3s, coverages ~3s)
-const ESSENTIAL_COLLECTIONS = ['banks', 'insurances', 'coverages'];
+const ESSENTIAL_COLLECTIONS = ['banks', 'insurances', 'coverages', 'config'];
 // clients y cards se cargan lazy: son tablas grandes y lentas (30s+ sin índice)
 const SECTION_COLLECTIONS = {
     clientes:          ['clients'],
@@ -109,12 +109,12 @@ const SECTION_COLLECTIONS = {
     tarjetas:          ['clients', 'cards', 'bankAccounts'],
     seguros:           [],
     coberturas:        [],
-    siniestros:        ['clients', 'incidents'],
-    reclamos:          ['clients', 'cards', 'incidents', 'claims', 'claimDetails'],
-    eventos:           ['clients', 'incidents', 'claims', 'claimEvents'],
+    siniestros:        ['clients', 'incidents', 'vueltas', 'claims', 'claimSteps', 'stepTemplates', 'banks'],
+    reclamos:          ['clients', 'cards', 'incidents', 'claims', 'claimDetails', 'vueltas', 'vueltaEvidencias'],
+    eventos:           ['clients', 'incidents', 'claims', 'claimEvents', 'claimSteps'],
     pendientes:        ['clients', 'incidents', 'claims', 'claimEvents'],
     seguimiento:       ['clients', 'incidents', 'claims', 'claimEvents'],
-    alertas:           ['clients', 'incidents', 'claims', 'claimEvents'],
+    alertas:           ['clients', 'incidents', 'claims', 'claimEvents', 'claimSteps', 'vueltas', 'banks', 'advances', 'cards', 'payments', 'recargas', 'recargaItems', 'cuadres', 'cuadreGastos'],
     adelantos:         ['clients', 'advances'],
     consultaAdelantos: ['clients', 'advances'],
     fichaCliente:      ['clients', 'cards', 'incidents', 'claims', 'claimDetails', 'claimEvents', 'advances', 'bankAccounts'],
@@ -124,7 +124,9 @@ const SECTION_COLLECTIONS = {
     tarjetasSinSeguro: ['clients', 'cards'],
     plantillasPasos:   ['banks', 'stepTemplates'],
     pagos:             ['clients', 'cards', 'banks', 'payments'],
-    vuelta:            ['clients', 'cards', 'banks', 'payments', 'vueltas', 'vueltaEvidencias', 'blockingCodes'],
+    vuelta:            ['clients', 'cards', 'banks', 'payments', 'vueltas', 'vueltaEvidencias', 'blockingCodes', 'incidents', 'claims'],
+    recargas:          ['clients', 'cards', 'banks', 'recargas', 'recargaItems'],
+    cuadre:            ['clients', 'banks', 'incidents', 'claims', 'recargas', 'recargaItems', 'cuadres', 'cuadreGastos'],
     guia:              ['clients', 'cards', 'incidents', 'claims', 'claimEvents', 'stepTemplates', 'claimSteps', 'banks', 'payments', 'vueltas'],
 };
 
@@ -197,19 +199,25 @@ export function generateId() {
  * @param {object} entity - Entidad con id ya asignado
  */
 export async function saveEntity(key, entity) {
+    let res;
     try {
-        const res = await fetch(`${API_BASE}?collection=${key}`, {
+        res = await fetch(`${API_BASE}?collection=${key}`, {
             method: 'POST',
             headers: buildHeaders(),
             body: JSON.stringify(entity),
         });
-        if (!res.ok) {
-            const err = await res.json();
-            console.error(`Error guardando en "${key}":`, err);
-        }
     } catch (err) {
+        // Falla de red: relanzar para que el repositorio avise al usuario.
         console.error(`Error de red guardando en "${key}":`, err);
+        throw err;
     }
+    if (!res.ok) {
+        let detalle = '';
+        try { detalle = JSON.stringify(await res.json()); } catch (e) { /* sin cuerpo JSON */ }
+        console.error(`Error guardando en "${key}": HTTP ${res.status} ${detalle}`);
+        throw new Error(`HTTP ${res.status} al guardar en ${key}`);
+    }
+    return res;
 }
 
 /**
@@ -219,18 +227,29 @@ export async function saveEntity(key, entity) {
  * @param {object} data - Campos a actualizar
  */
 export async function updateEntity(key, id, data) {
-    try {
-        const res = await fetch(`${API_BASE}?collection=${key}&id=${id}`, {
-            method: 'PUT',
-            headers: buildHeaders(),
-            body: JSON.stringify(data),
-        });
-        if (!res.ok) {
-            const err = await res.json();
-            console.error(`Error actualizando en "${key}":`, err);
+    // PUT es idempotente: reintentar ante caídas momentáneas de red (típico en
+    // celular al cambiar de WiFi a datos) evita el falso "No se pudo actualizar".
+    // Solo se reintentan fallos transitorios (red, 5xx, 408/429); un 4xx es error real.
+    const url = `${API_BASE}?collection=${key}&id=${id}`;
+    const opts = { method: 'PUT', headers: buildHeaders(), body: JSON.stringify(data) };
+    const MAX = 3;
+    for (let intento = 1; intento <= MAX; intento++) {
+        let res;
+        try {
+            res = await fetch(url, opts);
+        } catch (err) {
+            // Falla de red: reintentar con backoff; si ya fue el último intento, avisar.
+            if (intento < MAX) { await new Promise(r => setTimeout(r, 600 * intento)); continue; }
+            console.error(`Error de red actualizando en "${key}":`, err);
+            throw err;
         }
-    } catch (err) {
-        console.error(`Error de red actualizando en "${key}":`, err);
+        if (res.ok) return res;
+        const transitorio = [408, 429, 500, 502, 503, 504].includes(res.status);
+        if (transitorio && intento < MAX) { await new Promise(r => setTimeout(r, 600 * intento)); continue; }
+        let detalle = '';
+        try { detalle = JSON.stringify(await res.json()); } catch (e) { /* sin cuerpo JSON */ }
+        console.error(`Error actualizando en "${key}": HTTP ${res.status} ${detalle}`);
+        throw new Error(`HTTP ${res.status} al actualizar en ${key}`);
     }
 }
 

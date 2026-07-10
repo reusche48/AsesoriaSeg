@@ -1,5 +1,6 @@
 import { stepTemplateRepository } from '../repositories/stepTemplateRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
+import { esOpcional } from './claimStepService.js';
 
 /**
  * Servicio de plantillas de pasos del trámite por banco.
@@ -29,6 +30,7 @@ function normalize(data) {
         tipoDias: tipoPaso === 'informativo' ? null : (data.tipoDias || 'naturales'),
         requiereRespuesta: tipoPaso === 'espera' || tipoPaso === 'peticion_parcial',
         tipoPaso,
+        opcional: esOpcional(data) ? 1 : 0,
         activo: data.activo === false ? false : true,
     };
 }

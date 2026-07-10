@@ -28,14 +28,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Credenciales desde config.php (fuera del repositorio)
+// Credenciales SOLO desde config.php (fuera del repositorio). Sin fallback con
+// secretos embebidos (S3): si config.php falta o está incompleto, se falla seguro.
 if (file_exists(__DIR__ . '/config.php')) {
     require_once __DIR__ . '/config.php';
-} else {
-    define('DB_HOST', '107.180.115.202');
-    define('DB_USER', 'usuadmin');
-    define('DB_PASS', 'Aa@33590728');
-    define('DB_NAME', 'asesoria_seguros');
+}
+if (!defined('DB_HOST') || !defined('DB_USER') || !defined('DB_PASS') || !defined('DB_NAME')) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Configuración del servidor ausente o incompleta.']);
+    exit;
 }
 
 // Secreto para firmar/verificar tokens. Si config.php no lo define, se deriva
@@ -70,6 +71,8 @@ $TABLES_WITH_AUDIT = [
     'eventos_reclamo', 'adelantos', 'usuarios', 'roles', 'permisos_rol',
     'plantillas_pasos', 'pasos_reclamo', 'pagos_seguro',
     'vueltas', 'vuelta_evidencias', 'codigos_bloqueo',
+    'recargas', 'recarga_items',
+    'cuadres', 'cuadre_gastos',
 ];
 
 // Mapeo colecciones JS → tablas MySQL + columnas
@@ -180,6 +183,7 @@ $TABLE_MAP = [
             'reclamoId' => 'reclamo_id',
             'coberturaId' => 'cobertura_id',
             'monto' => 'monto',
+            'montoSiniestrado' => 'monto_siniestrado',
             'moneda' => 'moneda',
             'tipoCambio' => 'tipo_cambio',
             'montoSoles' => 'monto_soles',
@@ -196,6 +200,7 @@ $TABLE_MAP = [
             'descripcion' => 'descripcion',
             'observacion' => 'observacion',
             'evidencia' => 'evidencia',
+            'archivos' => 'archivos',
             'diasEspera' => 'dias_espera',
             'tipoDias' => 'tipo_dias',
             'fechaVencimiento' => 'fecha_vencimiento',
@@ -215,6 +220,7 @@ $TABLE_MAP = [
             'tipoDias' => 'tipo_dias',
             'requiereRespuesta' => 'requiere_respuesta',
             'tipoPaso' => 'tipo_paso',
+            'opcional' => 'opcional',
             'activo' => 'activo',
         ]
     ],
@@ -231,6 +237,7 @@ $TABLE_MAP = [
             'tipoDias' => 'tipo_dias',
             'requiereRespuesta' => 'requiere_respuesta',
             'tipoPaso' => 'tipo_paso',
+            'opcional' => 'opcional',
             'estado' => 'estado',
             'fechaCompletado' => 'fecha_completado',
         ]
@@ -254,6 +261,7 @@ $TABLE_MAP = [
         'cols' => [
             'id' => 'id',
             'clienteId' => 'cliente_id',
+            'siniestroId' => 'siniestro_id',
             'fecha' => 'fecha',
             'estado' => 'estado',
             'fechaCierre' => 'fecha_cierre',
@@ -285,6 +293,16 @@ $TABLE_MAP = [
             'codigo' => 'codigo',
             'tarjetaIds' => 'tarjeta_ids',
             'observacion' => 'observacion',
+            'fecha' => 'fecha',
+            'hora' => 'hora',
+            'evidencia' => 'evidencia',
+        ]
+    ],
+    'config' => [
+        'table' => 'configuracion',
+        'cols' => [
+            'id' => 'id',
+            'valor' => 'valor',
         ]
     ],
     'roles' => [
@@ -328,6 +346,52 @@ $TABLE_MAP = [
             'concepto' => 'concepto',
             'observaciones' => 'observaciones',
             'evidencia' => 'evidencia',
+        ]
+    ],
+    'recargas' => [
+        'table' => 'recargas',
+        'cols' => [
+            'id' => 'id',
+            'clienteId' => 'cliente_id',
+            'nombre' => 'nombre',
+            'fecha' => 'fecha',
+            'observaciones' => 'observaciones',
+        ]
+    ],
+    'recargaItems' => [
+        'table' => 'recarga_items',
+        'cols' => [
+            'id' => 'id',
+            'recargaId' => 'recarga_id',
+            'bancoId' => 'banco_id',
+            'monto' => 'monto',
+            'moneda' => 'moneda',
+            'fecha' => 'fecha',
+            'evidencia' => 'evidencia',
+            'observaciones' => 'observaciones',
+        ]
+    ],
+    'cuadres' => [
+        'table' => 'cuadres',
+        'cols' => [
+            'id' => 'id',
+            'recargaId' => 'recarga_id',
+            'tipoCambio' => 'tipo_cambio',
+            'reclamoIds' => 'reclamo_ids',
+            'observaciones' => 'observaciones',
+        ]
+    ],
+    'cuadreGastos' => [
+        'table' => 'cuadre_gastos',
+        'cols' => [
+            'id' => 'id',
+            'cuadreId' => 'cuadre_id',
+            'concepto' => 'concepto',
+            'monto' => 'monto',
+            'moneda' => 'moneda',
+            'fecha' => 'fecha',
+            'evidencia' => 'evidencia',
+            'observaciones' => 'observaciones',
         ]
     ],
 ];
@@ -487,6 +551,64 @@ function verifyAuthToken($token) {
     return $data;
 }
 
+/** Token corto y firmado para el 2º factor (entre paso 1 y 2 del login). TTL 5 min. */
+function makeChallengeToken($userId, $digit, $digits = [], $ttl = 300) {
+    $payload = b64url_encode(json_encode([
+        'uid' => $userId,
+        'd'   => $digit,
+        'ds'  => implode('', $digits), // los 4 dígitos mostrados, para detectar al que copia el captcha tal cual
+        'typ' => '2fa',
+        'exp' => time() + $ttl,
+    ]));
+    $sig = b64url_encode(hash_hmac('sha256', $payload, AUTH_SECRET, true));
+    return $payload . '.' . $sig;
+}
+function verifyChallengeToken($token) {
+    if (!$token || strpos($token, '.') === false) return null;
+    [$payload, $sig] = explode('.', $token, 2);
+    $expected = b64url_encode(hash_hmac('sha256', $payload, AUTH_SECRET, true));
+    if (!hash_equals($expected, $sig)) return null;
+    $data = json_decode(b64url_decode($payload), true);
+    if (!is_array($data) || ($data['typ'] ?? '') !== '2fa' || ($data['exp'] ?? 0) < time()) return null;
+    return $data;
+}
+/** Calcula el código esperado desde la regla (offsets CSV) y el dígito resaltado (con vuelta 0↔9). */
+function computeSecurityCode($offsetsCsv, $digit) {
+    $offsets = array_values(array_filter(array_map('trim', explode(',', (string)$offsetsCsv)), function ($x) { return $x !== ''; }));
+    if (empty($offsets)) return null;
+    $code = '';
+    foreach ($offsets as $o) {
+        $code .= (string)(((($digit + (int)$o) % 10) + 10) % 10);
+    }
+    return $code;
+}
+
+/**
+ * Registra un evento CRÍTICO de seguridad (ej: falló el captcha del 2º factor).
+ * Crea la tabla log_seguridad automáticamente si aún no existe.
+ */
+function logSeguridadCritico($pdo, $usuario, $ip, $detalle) {
+    $insert = function () use ($pdo, $usuario, $ip, $detalle) {
+        $pdo->prepare("INSERT INTO log_seguridad (nivel, usuario, ip, detalle, fecha) VALUES ('CRITICO', ?, ?, ?, NOW())")
+            ->execute([$usuario, $ip, $detalle]);
+    };
+    try {
+        $insert();
+    } catch (PDOException $e) {
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS log_seguridad (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                nivel VARCHAR(20) NOT NULL,
+                usuario VARCHAR(100) NULL,
+                ip VARCHAR(64) NULL,
+                detalle VARCHAR(500) NULL,
+                fecha DATETIME NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $insert();
+        } catch (PDOException $e2) { /* nunca bloquear el login por un fallo del log */ }
+    }
+}
+
 /** Extrae el token del header Authorization: Bearer xxx */
 function getRequestToken() {
     $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
@@ -595,12 +717,98 @@ if ($action === 'login' && $method === 'POST') {
             'rolNombre' => $user['rol_nombre'],
         ];
 
+        // 2º factor: si el usuario tiene código de seguridad configurado, NO se entrega
+        // el token todavía; se devuelve un desafío (números con uno resaltado).
+        $codigoSeg = $user['codigo_seguridad'] ?? null;
+        if ($codigoSeg !== null && trim($codigoSeg) !== '') {
+            $digit = random_int(0, 9);
+            $pos = random_int(0, 3);
+            $digits = [];
+            for ($i = 0; $i < 4; $i++) $digits[] = ($i === $pos) ? $digit : random_int(0, 9);
+            echo json_encode([
+                'success' => true,
+                'twofa' => true,
+                'challenge' => ['digits' => $digits, 'highlight' => $pos],
+                'challengeToken' => makeChallengeToken($user['id'], $digit, $digits),
+            ]);
+            exit;
+        }
+
         echo json_encode([
             'success' => true,
             'user' => $userOut,
             'permisos' => $pantallas,
             'token' => makeAuthToken($userOut),
         ]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Error: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
+// ========== LOGIN paso 2: verificar código de seguridad (2º factor) ==========
+if ($action === 'login2fa' && $method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $challengeToken = $input['challengeToken'] ?? '';
+    $codigo = trim((string)($input['codigo'] ?? ''));
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+
+    // Rate limiting (reutiliza login_attempts): máx 10 intentos por IP en 15 min.
+    try {
+        $ventana = date('Y-m-d H:i:s', strtotime('-15 minutes'));
+        $stmtRL = $pdo->prepare("SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND intentado_en > ?");
+        $stmtRL->execute([$ip, $ventana]);
+        if ((int)$stmtRL->fetchColumn() >= 10) {
+            http_response_code(429);
+            echo json_encode(['error' => 'Demasiados intentos. Espere 15 minutos.']);
+            exit;
+        }
+    } catch (PDOException $e) { /* sin rate limiting */ }
+
+    $ch = verifyChallengeToken($challengeToken);
+    if (!$ch) {
+        http_response_code(400);
+        echo json_encode(['error' => 'El desafío expiró. Vuelva a iniciar sesión.']);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare("SELECT u.*, r.nombre AS rol_nombre FROM usuarios u INNER JOIN roles r ON u.rol_id = r.id WHERE u.id = ? AND u.activo = 1");
+        $stmt->execute([$ch['uid']]);
+        $user = $stmt->fetch();
+        if (!$user) { http_response_code(401); echo json_encode(['error' => 'Usuario no encontrado.']); exit; }
+
+        $expected = computeSecurityCode($user['codigo_seguridad'] ?? '', (int)$ch['d']);
+        if ($expected === null || !hash_equals($expected, $codigo)) {
+            // Código incorrecto: registrar intento (rate limiting) y como evento CRÍTICO.
+            try { $pdo->prepare("INSERT INTO login_attempts (ip, usuario, intentado_en) VALUES (?, ?, NOW())")->execute([$ip, $user['usuario']]); } catch (PDOException $e) {}
+            $captchaMostrado = (string)($ch['ds'] ?? '');
+            if ($captchaMostrado !== '' && hash_equals($captchaMostrado, $codigo)) {
+                // Escribió el captcha TAL CUAL (no conoce la regla secreta) → menú falso.
+                logSeguridadCritico($pdo, $user['usuario'], $ip, 'Ingresó el captcha tal cual en el 2º factor → enviado al menú falso.');
+                echo json_encode(['success' => false, 'decoy' => true]);
+                exit;
+            }
+            // Escribió otra cosa: se le insiste en que ingrese el captcha mostrado.
+            logSeguridadCritico($pdo, $user['usuario'], $ip, 'Código incorrecto en el 2º factor (no coincide con el captcha mostrado). Ingresó ' . strlen($codigo) . ' caracteres.');
+            echo json_encode(['success' => false, 'error' => 'El código captcha es incorrecto. Debe ingresar el código captcha mostrado para ingresar al sistema.']);
+            exit;
+        }
+
+        // Correcto: limpiar intentos y entregar el token real.
+        try { $pdo->prepare("DELETE FROM login_attempts WHERE ip = ?")->execute([$ip]); } catch (PDOException $e) {}
+        $stmtP = $pdo->prepare("SELECT pantalla FROM permisos_rol WHERE rol_id = ? AND acceso = 1");
+        $stmtP->execute([$user['rol_id']]);
+        $pantallas = $stmtP->fetchAll(PDO::FETCH_COLUMN);
+        $userOut = [
+            'id' => $user['id'],
+            'usuario' => $user['usuario'],
+            'nombreCompleto' => $user['nombre_completo'],
+            'rolId' => $user['rol_id'],
+            'rolNombre' => $user['rol_nombre'],
+        ];
+        echo json_encode(['success' => true, 'user' => $userOut, 'permisos' => $pantallas, 'token' => makeAuthToken($userOut)]);
     } catch (PDOException $e) {
         http_response_code(500);
         echo json_encode(['error' => 'Error: ' . $e->getMessage()]);
@@ -653,6 +861,67 @@ if ($action === 'changePassword' && $method === 'POST') {
         $hash = password_hash($claveNueva, PASSWORD_BCRYPT);
         $pdo->prepare("UPDATE usuarios SET clave = ? WHERE id = ?")->execute([$hash, $userId]);
         echo json_encode(['success' => true, 'message' => 'Contraseña actualizada exitosamente.']);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Error: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
+// ========== CÓDIGO DE SEGURIDAD (2º factor) — usuario logueado ==========
+if ($action === 'securityCodeStatus') {
+    try {
+        $stmt = $pdo->prepare("SELECT codigo_seguridad FROM usuarios WHERE id = ?");
+        $stmt->execute([$AUTH['uid']]);
+        $cs = $stmt->fetchColumn();
+        echo json_encode(['configured' => ($cs !== null && trim((string)$cs) !== '')]);
+    } catch (PDOException $e) { echo json_encode(['configured' => false]); }
+    exit;
+}
+
+if ($action === 'setSecurityCode' && $method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true);
+    // Desactivar el 2º factor del propio usuario.
+    if (!empty($input['disable'])) {
+        $pdo->prepare("UPDATE usuarios SET codigo_seguridad = NULL WHERE id = ?")->execute([$AUTH['uid']]);
+        echo json_encode(['success' => true, 'configured' => false]);
+        exit;
+    }
+    $offsets = $input['offsets'] ?? [];
+    if (!is_array($offsets) || count($offsets) < 2 || count($offsets) > 4) {
+        http_response_code(400);
+        echo json_encode(['error' => 'La regla debe tener entre 2 y 4 posiciones.']);
+        exit;
+    }
+    $clean = [];
+    foreach ($offsets as $o) {
+        if (!is_numeric($o)) { http_response_code(400); echo json_encode(['error' => 'Regla inválida.']); exit; }
+        $n = (int)$o;
+        if ($n < -9 || $n > 9) { http_response_code(400); echo json_encode(['error' => 'Regla inválida.']); exit; }
+        $clean[] = $n;
+    }
+    try {
+        $pdo->prepare("UPDATE usuarios SET codigo_seguridad = ? WHERE id = ?")->execute([implode(',', $clean), $AUTH['uid']]);
+        echo json_encode(['success' => true, 'configured' => true]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Error: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'resetSecurityCode' && $method === 'POST') {
+    if (($AUTH['rol'] ?? null) !== 'Administrador') {
+        http_response_code(403);
+        echo json_encode(['error' => 'No autorizado.']);
+        exit;
+    }
+    $input = json_decode(file_get_contents('php://input'), true);
+    $userId = $input['userId'] ?? '';
+    if (!$userId) { http_response_code(400); echo json_encode(['error' => 'userId requerido.']); exit; }
+    try {
+        $pdo->prepare("UPDATE usuarios SET codigo_seguridad = NULL WHERE id = ?")->execute([$userId]);
+        echo json_encode(['success' => true]);
     } catch (PDOException $e) {
         http_response_code(500);
         echo json_encode(['error' => 'Error: ' . $e->getMessage()]);
@@ -740,6 +1009,23 @@ if ($action === 'activity' && $method === 'GET') {
             ];
         }
     } catch (PDOException $e) { /* tabla de auditoría aún no existe */ }
+
+    // Eventos críticos de seguridad (intentos fallidos del captcha del 2º factor)
+    try {
+        $stmtSec = $pdo->prepare("SELECT nivel, usuario, ip, detalle, fecha FROM log_seguridad WHERE fecha BETWEEN ? AND ?");
+        $stmtSec->execute([$fechaInicio, $fechaFinDb]);
+        foreach ($stmtSec->fetchAll() as $row) {
+            $results[] = [
+                'entidad' => 'Seguridad',
+                'accion' => '⚠️ CRÍTICO',
+                'usuario' => $row['usuario'],
+                'equipo' => $row['ip'],
+                'fecha' => $row['fecha'],
+                'registroId' => null,
+                'descripcion' => $row['detalle'],
+            ];
+        }
+    } catch (PDOException $e) { /* tabla log_seguridad aún no existe */ }
 
     usort($results, function($a, $b) {
         return strcmp($b['fecha'] ?? '', $a['fecha'] ?? '');
@@ -836,6 +1122,18 @@ $mapping = $TABLE_MAP[$collection];
 $table = $mapping['table'];
 $cols = $mapping['cols'];
 
+// ── Autorización de escritura sobre colecciones sensibles (S1) ──
+// Solo un Administrador puede crear/modificar/eliminar usuarios, roles y permisos.
+// Cierra la escalada de privilegios (un no-admin cambiándose el rol a Administrador).
+$WRITE_ADMIN_ONLY = ['users', 'roles', 'rolePermissions', 'permisos_rol'];
+if (in_array($method, ['POST', 'PUT', 'DELETE'], true) && in_array($collection, $WRITE_ADMIN_ONLY, true)) {
+    if (($AUTH['rol'] ?? null) !== 'Administrador') {
+        http_response_code(403);
+        echo json_encode(['error' => 'No autorizado: solo un administrador puede modificar usuarios, roles o permisos.']);
+        exit;
+    }
+}
+
 try {
     switch ($method) {
 
@@ -855,6 +1153,7 @@ try {
                 if ($collection === 'cards') {
                     $entity['cuentaIds'] = getCardCuentaIds($pdo, $entity['id']);
                 }
+                if ($collection === 'users') unset($entity['clave']); // S2: nunca exponer el hash
                 echo json_encode($entity);
             } else {
                 // GET todos
@@ -871,6 +1170,7 @@ try {
                     if ($collection === 'cards') {
                         $entity['cuentaIds'] = $cardCuentaMap[$entity['id']] ?? [];
                     }
+                    if ($collection === 'users') unset($entity['clave']); // S2: nunca exponer el hash
                     return $entity;
                 }, $rows);
                 echo json_encode($entities);

@@ -107,6 +107,7 @@ export class BaseRepository {
 
     /** Muestra un toast cuando un no-admin intenta eliminar (denegado + registrado) */
     _notifyDeleteDenied() {
+        if (typeof document === 'undefined') return; // entorno de tests (Node)
         const existing = document.getElementById('write-error-toast');
         if (existing) existing.remove();
         const toast = document.createElement('div');
@@ -119,14 +120,17 @@ export class BaseRepository {
 
     /** Muestra un toast de error si una escritura a la API falla */
     _notifyWriteError(accion) {
+        if (typeof document === 'undefined') return; // entorno de tests (Node)
         const existing = document.getElementById('write-error-toast');
-        if (existing) return; // no acumular toasts
+        if (existing) existing.remove();
         const toast = document.createElement('div');
         toast.id = 'write-error-toast';
-        toast.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:#c62828;color:#fff;padding:0.75rem 1rem;border-radius:6px;z-index:99999;font-size:0.9rem;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
-        toast.textContent = `⚠️ Error al ${accion} dato en el servidor. Recargue la página si el problema persiste.`;
+        toast.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:#c62828;color:#fff;padding:0.9rem 1.1rem;border-radius:8px;z-index:99999;font-size:0.92rem;line-height:1.35;box-shadow:0 4px 14px rgba(0,0,0,0.4);max-width:360px;';
+        toast.innerHTML = `<strong>⚠️ No se pudo ${accion} en el servidor.</strong><br>
+            Revisa tu conexión y <u>vuelve a intentarlo</u>.<br>
+            <span style="font-size:0.82rem;opacity:0.9;">No recargues la página: perderías este cambio.</span>`;
         document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 6000);
+        setTimeout(() => { toast.remove(); }, 12000);
     }
 
     /** Busca elementos que cumplan con el predicado. */
