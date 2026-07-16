@@ -15,8 +15,10 @@ if (-not (Test-Path $secretsFile)) {
 $REMOTE_PATH = ""
 
 # Carpetas y archivos a EXCLUIR del FTP (no van al servidor)
-$excludeDirs = @("node_modules", ".git", ".kiro", ".vscode", "database", "src\tests")
-$excludeFiles = @("package.json", "package-lock.json", "vitest.config.js", "deploy.ps1", "AsesoriaSeg.code-workspace", "diagrama_bd.html", "serve.cjs")
+$excludeDirs = @("node_modules", ".git", ".kiro", ".vscode", ".claude", "database", "src\tests")
+# deploy.secrets.ps1 NUNCA debe subirse: son las credenciales FTP en texto plano y
+# el servidor las sirve como archivo descargable (no las ejecuta).
+$excludeFiles = @("package.json", "package-lock.json", "vitest.config.js", "deploy.ps1", "deploy.secrets.ps1", "AsesoriaSeg.code-workspace", "diagrama_bd.html", "serve.cjs")
 
 $modo = $args[0]
 $horasAtras = 2
