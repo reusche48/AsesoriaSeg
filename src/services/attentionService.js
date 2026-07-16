@@ -129,7 +129,8 @@ export function getAtenderHoy() {
     for (const client of clientRepository.getAll()) {
         const cerrados = bancosCerradosSet(client.id);
         for (const s of getPaymentStatusForClient(client.id)) {
-            if (s.estado === 'al_dia' || cerrados.has(s.bancoId)) continue;
+            // Bloqueado (tarjetas ya bloqueadas) o al día → no alerta de pago.
+            if (s.estado === 'al_dia' || s.estado === 'bloqueado' || cerrados.has(s.bancoId)) continue;
             const vencido = s.estado === 'vencido';
             items.push({
                 severidad: SEV.PAGO,

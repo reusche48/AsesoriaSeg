@@ -158,6 +158,10 @@ export function updateClaimEvent(eventId, data) {
     if (data.evidencia !== undefined) {
         updateData.evidencia = data.evidencia || existing.evidencia;
     }
+    if (data.archivos !== undefined) {
+        // Se permite quedar vacío (quitar todos los adjuntos).
+        updateData.archivos = (Array.isArray(data.archivos) ? data.archivos.filter(Boolean).join(',') : data.archivos) || null;
+    }
     // Actualizar campos de plazo si se proporcionan
     if (data.diasEspera !== undefined) {
         updateData.diasEspera = data.diasEspera || null;

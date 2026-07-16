@@ -13,6 +13,8 @@ import { getActiveClientId } from '../state/clientContext.js';
 
 let selectedEventEvidenceDataUrl = null;
 let eventEvidenceUploading = false;
+let selectedEventArchivos = [];
+let eventArchivosUploading = false;
 let eventFilterDesde = null;
 let eventFilterHasta = null;
 
@@ -221,7 +223,7 @@ function setupClaimAutocomplete(container) {
 /**
  * Abre modal para crear/editar evento.
  */
-function openEventModal(container, eventObj) {
+export function openEventModal(container, eventObj, opts = {}) {
     const editing = !!eventObj;
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
@@ -299,6 +301,14 @@ function openEventModal(container, eventObj) {
         </div>
         <div class="form-row">
             <div class="form-group">
+                <label>Archivos adjuntos (varios — opcional)</label>
+                <div id="modal-event-archivos-list" style="font-size:0.82rem;margin-bottom:4px;"></div>
+                <input type="file" id="modal-event-archivos" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.zip">
+                <div id="modal-event-archivos-status" style="font-size:0.82rem;margin-top:4px;min-height:1.2em;color:#9ca3af;"></div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
                 <label>Días de espera para respuesta</label>
                 <input type="number" id="modal-event-dias-espera" min="1" step="1" placeholder="Ej: 30 (opcional)" value="${editing && eventObj.diasEspera ? eventObj.diasEspera : ''}">
             </div>
@@ -310,9 +320,14 @@ function openEventModal(container, eventObj) {
                 </select>
             </div>
         </div>
+        ${editing ? `<div style="margin-top:0.6rem;border-top:1px solid #1f2937;padding-top:0.6rem;">
+            <button type="button" id="modal-event-delete" style="background:#7f1d1d;color:#fff;border:none;border-radius:6px;padding:0.45rem 0.9rem;cursor:pointer;font-size:0.85rem;">🗑️ Eliminar este evento</button>
+        </div>` : ''}
     `;
 
     selectedEventEvidenceDataUrl = editing ? (eventObj.evidencia || null) : null;
+    selectedEventArchivos = editing ? (eventObj.archivos || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+    eventArchivosUploading = false;
 
     openFormModal({
         title: editing ? 'Editar Evento' : 'Nuevo Evento',
@@ -403,11 +418,60 @@ function openEventModal(container, eventObj) {
                 eventEvidenceUploading = false;
                 renderEvStatus();
             });
+
+            // Archivos adjuntos (varios): muestra los actuales (ver/quitar) y permite agregar más.
+            const archInput = overlay.querySelector('#modal-event-archivos');
+            const archList = overlay.querySelector('#modal-event-archivos-list');
+            const archStatus = overlay.querySelector('#modal-event-archivos-status');
+            function renderArchivos() {
+                if (!selectedEventArchivos.length) {
+                    archList.innerHTML = '<span style="color:#9ca3af;">Sin archivos adjuntos.</span>';
+                    return;
+                }
+                archList.innerHTML = selectedEventArchivos.map((u, i) => `<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">
+                    <span style="color:#10b981;">📎 Archivo ${i + 1}</span>
+                    <a href="#" class="arch-ver" data-idx="${i}" style="color:#7c3aed;">Ver</a>
+                    <a href="#" class="arch-quitar" data-idx="${i}" style="color:#ef4444;">Quitar</a>
+                </div>`).join('');
+                archList.querySelectorAll('.arch-ver').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(selectedEventArchivos[Number(a.getAttribute('data-idx'))]); }));
+                archList.querySelectorAll('.arch-quitar').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); selectedEventArchivos.splice(Number(a.getAttribute('data-idx')), 1); renderArchivos(); }));
+            }
+            renderArchivos();
+            archInput.addEventListener('change', () => {
+                const files = Array.from(archInput.files || []);
+                if (!files.length) return;
+                eventArchivosUploading = true;
+                archStatus.style.color = '#f59e0b';
+                archStatus.textContent = `⏳ Subiendo ${files.length} archivo(s)...`;
+                Promise.all(files.map(f => uploadFile(f))).then(urls => {
+                    selectedEventArchivos.push(...urls.filter(Boolean));
+                    eventArchivosUploading = false;
+                    archInput.value = '';
+                    archStatus.style.color = '#10b981';
+                    archStatus.textContent = `✓ ${urls.filter(Boolean).length} archivo(s) agregado(s)`;
+                    renderArchivos();
+                }).catch(() => {
+                    eventArchivosUploading = false; archInput.value = '';
+                    archStatus.style.color = '#ef4444';
+                    archStatus.textContent = 'Error al subir uno de los archivos. Inténtalo de nuevo.';
+                });
+            });
+
+            // Eliminar evento (solo al editar)
+            const delBtn = overlay.querySelector('#modal-event-delete');
+            if (delBtn) delBtn.addEventListener('click', () => {
+                if (!confirm('¿Eliminar este evento? Esta acción no se puede deshacer.')) return;
+                deleteClaimEvent(eventObj.id);
+                closeFormModal();
+                if (opts.onDone) { opts.onDone(); return; }
+                const mc = container.querySelector('#event-claim-id')?.value;
+                if (mc) refreshEventList(container, mc); else showLatestEvents(container);
+            });
         },
         onSubmit: (form) => {
             clearModalErrors();
-            if (eventEvidenceUploading) {
-                showModalAlert('Espere a que termine de subir la evidencia antes de guardar.', 'error');
+            if (eventEvidenceUploading || eventArchivosUploading) {
+                showModalAlert('Espere a que terminen de subir los archivos antes de guardar.', 'error');
                 return;
             }
             const claimId = form.querySelector('#modal-event-claim-id').value;
@@ -418,15 +482,17 @@ function openEventModal(container, eventObj) {
             const diasEspera = diasEsperaStr ? parseInt(diasEsperaStr) : null;
             const tipoDias = form.querySelector('#modal-event-tipo-dias').value;
 
+            const archivosCsv = selectedEventArchivos.filter(Boolean).join(',');
             let result;
             if (editing) {
-                result = updateClaimEvent(eventObj.id, { reclamoId: claimId, fecha, descripcion, observacion, evidencia: selectedEventEvidenceDataUrl, diasEspera, tipoDias });
+                result = updateClaimEvent(eventObj.id, { reclamoId: claimId, fecha, descripcion, observacion, evidencia: selectedEventEvidenceDataUrl, archivos: archivosCsv, diasEspera, tipoDias });
             } else {
-                result = addClaimEvent(claimId, fecha, descripcion, observacion, selectedEventEvidenceDataUrl, diasEspera, tipoDias, null);
+                result = addClaimEvent(claimId, fecha, descripcion, observacion, selectedEventEvidenceDataUrl, diasEspera, tipoDias, null, null, selectedEventArchivos);
             }
 
             if (result.success) {
                 closeFormModal();
+                if (opts.onDone) { opts.onDone(); return; }
                 const mainClaimId = container.querySelector('#event-claim-id')?.value;
                 if (mainClaimId) {
                     refreshEventList(container, mainClaimId);

@@ -11,7 +11,6 @@ import { renderInsuranceSection } from './ui/insuranceUI.js';
 import { renderCoverageSection } from './ui/coverageUI.js';
 import { renderIncidentSection } from './ui/incidentUI.js';
 import { renderClaimSection } from './ui/claimUI.js';
-import { renderClaimEventSection } from './ui/claimEventUI.js';
 import { renderPendingClaimsSection } from './ui/pendingClaimsUI.js';
 import { renderTrackingSection } from './ui/trackingUI.js';
 import { renderAlertsSection } from './ui/alertsUI.js';
@@ -29,6 +28,7 @@ import { renderVueltaSection } from './ui/vueltaUI.js';
 import { renderRechargeSection } from './ui/rechargeUI.js';
 import { renderCuadreSection } from './ui/cuadreUI.js';
 import { mountClientContextBar } from './ui/clientContextBar.js';
+import { mountAlertsRail, refreshAlertsRail } from './ui/alertsRail.js';
 import { clearActiveClient } from './state/clientContext.js';
 
 /** Mapa de secciones: hash → función de renderizado. */
@@ -41,7 +41,6 @@ const routes = {
     coberturas: renderCoverageSection,
     siniestros: renderIncidentSection,
     reclamos: renderClaimSection,
-    eventos: renderClaimEventSection,
     pendientes: renderPendingClaimsSection,
     seguimiento: renderTrackingSection,
     alertas: renderAlertsSection,
@@ -74,10 +73,8 @@ const NAV_LABELS = {
     coberturas:        `${ico('<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><line x1="13" y1="8" x2="21" y2="8"/><line x1="13" y1="18" x2="21" y2="18"/>')} Coberturas`,
     siniestros:        `${ico('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>')} Siniestros`,
     reclamos:          `${ico('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>')} Reclamos`,
-    eventos:           `${ico('<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/>')} Eventos`,
     pendientes:        `${ico('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>')} Pendientes`,
     seguimiento:       `${ico('<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>')} Seguimiento`,
-    alertas:           `${ico('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>')} Alertas`,
     usuarios:          `${ico('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>')} Usuarios`,
     actividad:         `${ico('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>')} Actividad`,
     adelantos:         `${ico('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>')} Adelantos`,
@@ -102,8 +99,6 @@ const SIDEBAR_ORDER = [
     'seguros',
     'coberturas',
     'reclamos',
-    'eventos',
-    'alertas',
     'plantillasPasos',
     'pagos',
     'vuelta',
@@ -123,9 +118,9 @@ function isStandaloneApp() {
         || window.matchMedia('(display-mode: standalone)').matches;
 }
 
-/** Página de inicio por defecto: Alertas (para todos los usuarios con acceso). */
+/** Página de inicio por defecto: Guía (Alertas ahora es la columna lateral fija). */
 function defaultHomeSection() {
-    if (hasAccess('alertas')) return 'alertas';
+    if (hasAccess('guia')) return 'guia';
     if (hasAccess('clientes')) return 'clientes';
     const allowed = getAllowedScreens().filter(k => k !== 'dashboard');
     return allowed.length > 0 ? allowed[0] : 'clientes';
@@ -225,10 +220,6 @@ async function navigateTo(section) {
     }
     const container = document.getElementById('app-container');
     if (!container) return;
-    // Al salir de Eventos, olvidar el reclamo enfocado (de Alertas → Ver Historial)
-    if (section !== 'eventos') {
-        try { sessionStorage.removeItem('eventos_focus_claim'); } catch (e) { /* ignore */ }
-    }
     const renderFn = routes[section];
     if (renderFn) {
         container.innerHTML = '<div class="empty-state" style="padding:2rem;">Cargando...</div>';
@@ -238,6 +229,7 @@ async function navigateTo(section) {
         renderFn(container);
         updateAlertsBadge();
         updateGuiaBadge();
+        refreshAlertsRail();
     }
 }
 
@@ -785,6 +777,7 @@ async function startApp() {
     await initStorage();
     buildNavigation();
     mountClientContextBar();
+    mountAlertsRail();
 
     // Setup modal close
     const modalCloseBtn = document.getElementById('modal-close-btn');

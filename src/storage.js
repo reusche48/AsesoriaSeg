@@ -114,7 +114,7 @@ const SECTION_COLLECTIONS = {
     eventos:           ['clients', 'incidents', 'claims', 'claimEvents', 'claimSteps'],
     pendientes:        ['clients', 'incidents', 'claims', 'claimEvents'],
     seguimiento:       ['clients', 'incidents', 'claims', 'claimEvents'],
-    alertas:           ['clients', 'incidents', 'claims', 'claimEvents', 'claimSteps', 'vueltas', 'banks', 'advances', 'cards', 'payments', 'recargas', 'recargaItems', 'cuadres', 'cuadreGastos'],
+    alertas:           ['clients', 'incidents', 'claims', 'claimEvents', 'claimSteps', 'vueltas', 'blockingCodes', 'banks', 'advances', 'cards', 'payments', 'recargas', 'recargaItems', 'cuadres', 'cuadreGastos'],
     adelantos:         ['clients', 'advances'],
     consultaAdelantos: ['clients', 'advances'],
     fichaCliente:      ['clients', 'cards', 'incidents', 'claims', 'claimDetails', 'claimEvents', 'advances', 'bankAccounts'],
@@ -123,11 +123,11 @@ const SECTION_COLLECTIONS = {
     usuarios:          [],
     tarjetasSinSeguro: ['clients', 'cards'],
     plantillasPasos:   ['banks', 'stepTemplates'],
-    pagos:             ['clients', 'cards', 'banks', 'payments'],
+    pagos:             ['clients', 'cards', 'banks', 'payments', 'vueltas', 'blockingCodes'],
     vuelta:            ['clients', 'cards', 'banks', 'payments', 'vueltas', 'vueltaEvidencias', 'blockingCodes', 'incidents', 'claims'],
     recargas:          ['clients', 'cards', 'banks', 'recargas', 'recargaItems'],
     cuadre:            ['clients', 'banks', 'incidents', 'claims', 'recargas', 'recargaItems', 'cuadres', 'cuadreGastos'],
-    guia:              ['clients', 'cards', 'incidents', 'claims', 'claimEvents', 'stepTemplates', 'claimSteps', 'banks', 'payments', 'vueltas'],
+    guia:              ['clients', 'cards', 'incidents', 'claims', 'claimEvents', 'stepTemplates', 'claimSteps', 'banks', 'payments', 'vueltas', 'blockingCodes'],
 };
 
 /**

@@ -420,7 +420,10 @@ function openDenunciaModal(container, vuelta) {
             <div class="form-group"><label>Fecha de la denuncia</label><input type="date" id="dn-fecha" value="${vuelta.denunciaFecha || ''}"></div>
             <div class="form-group"><label>Evidencia de la denuncia</label>
                 <input type="file" id="dn-file" accept=".pdf,.jpg,.jpeg,.png,.webp">
-                <div id="dn-status" style="font-size:0.82rem;margin-top:4px;color:#9ca3af;min-height:1.2em;">${vuelta.denunciaEvidencia ? '✓ Ya hay una evidencia (sube otra para reemplazar)' : ''}</div></div>`,
+                <div id="dn-status" style="font-size:0.82rem;margin-top:4px;color:#9ca3af;min-height:1.2em;">${vuelta.denunciaEvidencia ? '✓ Ya hay una evidencia (sube otra para reemplazar)' : ''}</div></div>
+            ${vuelta.denunciaEvidencia ? `<div style="margin-top:0.6rem;border-top:1px solid #1f2937;padding-top:0.6rem;">
+                <button type="button" id="dn-delete" style="background:#7f1d1d;color:#fff;border:none;border-radius:6px;padding:0.45rem 0.9rem;cursor:pointer;font-size:0.85rem;">🗑️ Eliminar denuncia</button>
+            </div>` : ''}`,
         onOpen: (overlay) => {
             const input = overlay.querySelector('#dn-file'), status = overlay.querySelector('#dn-status');
             input.addEventListener('change', () => {
@@ -428,6 +431,17 @@ function openDenunciaModal(container, vuelta) {
                 uploading = true; status.textContent = '⏳ Subiendo...'; status.style.color = '#f59e0b';
                 uploadFile(file).then(u => { evidenceUrl = u; uploading = false; status.textContent = '✓ Subido'; status.style.color = '#10b981'; })
                     .catch(() => { uploading = false; input.value = ''; status.textContent = 'Error al subir'; status.style.color = '#ef4444'; });
+            });
+
+            // Eliminar la denuncia (quita archivo y fecha). NO borra el siniestro ya generado.
+            overlay.querySelector('#dn-delete')?.addEventListener('click', async () => {
+                const yaTieneSiniestro = !!vuelta.siniestroId;
+                const msg = '¿Eliminar la denuncia de esta vuelta? Se quitarán el archivo y la fecha, y la vuelta volverá a figurar "sin denuncia" (saldrá otra vez la alerta para subirla).'
+                    + (yaTieneSiniestro ? ' Ojo: el siniestro y los reclamos ya creados desde esta vuelta NO se borran.' : '');
+                if (!await confirmarEliminacion(msg, { titulo: '🗑️ Eliminar denuncia', confirmLabel: 'Eliminar denuncia' })) return;
+                updateVuelta(vuelta.id, { denunciaEvidencia: null, denunciaFecha: null });
+                closeFormModal();
+                paint(container);
             });
         },
         onSubmit: async (form) => {

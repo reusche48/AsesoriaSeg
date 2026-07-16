@@ -162,7 +162,7 @@ export function getSession() {
 /** Lista maestra de todas las pantallas del sistema */
 const ALL_SCREEN_KEYS = [
     'dashboard', 'clientes', 'bancos', 'tarjetas', 'seguros', 'coberturas',
-    'siniestros', 'reclamos', 'eventos', 'pendientes', 'seguimiento',
+    'siniestros', 'reclamos', 'pendientes', 'seguimiento',
     'alertas', 'usuarios', 'actividad', 'adelantos', 'consultaAdelantos',
     'fichaCliente',
     'tarjetasSinSeguro',

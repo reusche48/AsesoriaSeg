@@ -10,9 +10,10 @@ import { openFormModal, closeFormModal, showModalAlert } from './modalHelper.js'
 import { confirmarEliminacion } from '../utils.js';
 
 const ESTADO_CFG = {
-    al_dia:   { color: '#10b981', label: '✓ Al día' },
-    vencido:  { color: '#ef4444', label: '⚠️ Vencido' },
-    sin_pago: { color: '#f59e0b', label: '◷ Sin pago registrado' },
+    al_dia:    { color: '#10b981', label: '✓ Al día' },
+    vencido:   { color: '#ef4444', label: '⚠️ Vencido' },
+    sin_pago:  { color: '#f59e0b', label: '◷ Sin pago registrado' },
+    bloqueado: { color: '#38bdf8', label: '🔒 Bloqueada (no requiere pago)' },
 };
 
 export function renderPaymentSection(container) {
@@ -51,9 +52,11 @@ function renderForClient(container, client) {
         ? '<div class="empty-state">Este cliente no tiene tarjetas con seguro asignado.</div>'
         : status.map(s => {
             const cfg = ESTADO_CFG[s.estado] || ESTADO_CFG.sin_pago;
-            const detalle = s.estado === 'sin_pago'
-                ? 'Nunca se registró un pago'
-                : `Último: ${formatDate(s.ultimoPago)} (${s.periodicidad}) · Próximo: ${formatDate(s.proximoVence)}${s.estado === 'vencido' ? ` · vencido hace ${Math.abs(s.dias)} día(s)` : ` · en ${s.dias} día(s)`}`;
+            const detalle = s.estado === 'bloqueado'
+                ? 'Tarjetas bloqueadas — ya no requiere pago del seguro'
+                : s.estado === 'sin_pago'
+                    ? 'Nunca se registró un pago'
+                    : `Último: ${formatDate(s.ultimoPago)} (${s.periodicidad}) · Próximo: ${formatDate(s.proximoVence)}${s.estado === 'vencido' ? ` · vencido hace ${Math.abs(s.dias)} día(s)` : ` · en ${s.dias} día(s)`}`;
             return `<div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;background:#111827;border:1px solid #1f2937;border-radius:8px;padding:0.75rem 1rem;flex-wrap:wrap;">
                 <div>
                     <strong style="color:#f1f5f9;">🏦 ${esc(s.bancoNombre)}</strong>

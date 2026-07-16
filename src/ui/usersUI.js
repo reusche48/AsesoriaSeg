@@ -18,7 +18,6 @@ const ALL_SCREENS = [
     { key: 'coberturas', label: 'Coberturas' },
     { key: 'siniestros', label: 'Siniestros' },
     { key: 'reclamos', label: 'Reclamos' },
-    { key: 'eventos', label: 'Eventos' },
     { key: 'pendientes', label: 'Pendientes' },
     { key: 'seguimiento', label: 'Seguimiento' },
     { key: 'alertas', label: 'Alertas' },

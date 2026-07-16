@@ -100,6 +100,21 @@ export function ensureClaimSteps(claimId) {
         if (Object.keys(cambios).length) { claimStepRepository.update(s.id, cambios); huboCambios = true; }
     });
 
+    // c) Quita los pasos cuya plantilla fue BORRADA/desactivada en "Pasos por Banco",
+    //    pero SOLO si están 'pendiente' y sin eventos (no se pierde ningún avance).
+    //    Resguardo: si la colección de plantillas no está cargada (getAll vacío), no
+    //    se borra nada para evitar una eliminación masiva por datos incompletos.
+    if (stepTemplateRepository.getAll().length > 0) {
+        const activeTplIds = new Set(templates.map(t => t.id));
+        existing.forEach(s => {
+            if (!s.plantillaId || activeTplIds.has(s.plantillaId)) return; // plantilla sigue activa o paso sin plantilla
+            if (s.estado !== 'pendiente') return;                          // conservar pasos con avance/completados
+            if (claimEventRepository.getAll().some(e => e.stepId === s.id)) return; // conservar si tiene eventos
+            claimStepRepository.delete(s.id);
+            huboCambios = true;
+        });
+    }
+
     return huboCambios ? claimStepRepository.findByClaimId(claimId) : existing;
 }
 

@@ -7,7 +7,6 @@ import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
-import { cardRepository } from '../repositories/cardRepository.js';
 import { insuranceRepository } from '../repositories/insuranceRepository.js';
 import { coverageRepository } from '../repositories/coverageRepository.js';
 import { openFileViewer } from '../app.js';
@@ -43,9 +42,15 @@ export function renderClaimSection(container) {
                     </select>
                 </div>
                 <div class="form-group">
+                    <label for="claim-vuelta-select">Vuelta (siniestro) *</label>
+                    <select id="claim-vuelta-select" aria-label="Seleccionar vuelta">
+                        <option value="">-- Primero seleccione un cliente --</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="claim-bank-select">Banco (Reclamo) *</label>
                     <select id="claim-bank-select" aria-label="Seleccionar banco/reclamo">
-                        <option value="">-- Primero seleccione un cliente --</option>
+                        <option value="">-- Primero seleccione una vuelta --</option>
                     </select>
                 </div>
             </div>
@@ -61,6 +66,7 @@ export function renderClaimSection(container) {
     `;
 
     setupClientSelector(container);
+    setupVueltaSelector(container);
     setupBankSelector(container);
     renderVueltaLauncher(container);
 
@@ -104,10 +110,10 @@ function renderVueltaLauncher(container) {
     }).sort((a, b) => ((b.sinReclamar ? 1 : 0) - (a.sinReclamar ? 1 : 0)) || (new Date(b.v.fecha) - new Date(a.v.fecha)));
 
     const chip = (v, b) => b.nDet === 0
-        ? `<button type="button" class="claim-vuelta-banco" data-cliente="${esc(v.clienteId)}" data-banco="${esc(b.id)}"
+        ? `<button type="button" class="claim-vuelta-banco" data-cliente="${esc(v.clienteId)}" data-vuelta="${esc(v.id)}" data-banco="${esc(b.id)}"
              style="background:#78350f;border:1px solid #b45309;color:#fbbf24;border-radius:8px;padding:4px 12px;font-size:0.8rem;font-weight:700;cursor:pointer;">
              ${esc(b.nombre)} · ⏳ SIN RECLAMAR</button>`
-        : `<button type="button" class="claim-vuelta-banco" data-cliente="${esc(v.clienteId)}" data-banco="${esc(b.id)}"
+        : `<button type="button" class="claim-vuelta-banco" data-cliente="${esc(v.clienteId)}" data-vuelta="${esc(v.id)}" data-banco="${esc(b.id)}"
              style="background:#064e3b;border:1px solid #065f46;color:#34d399;border-radius:8px;padding:4px 12px;font-size:0.8rem;cursor:pointer;">
              ${esc(b.nombre)} · ✔ ${b.nDet} cobertura(s) <span style="color:#9ca3af;">✏ editar</span></button>`;
 
@@ -127,24 +133,25 @@ function renderVueltaLauncher(container) {
         </div>`;
 
     box.querySelectorAll('.claim-vuelta-banco').forEach(btn => {
-        btn.addEventListener('click', () => launchFromVuelta(container, btn.getAttribute('data-cliente'), btn.getAttribute('data-banco')));
+        btn.addEventListener('click', () => launchFromVuelta(container, btn.getAttribute('data-cliente'), btn.getAttribute('data-vuelta'), btn.getAttribute('data-banco')));
     });
 }
 
-/** Abre el reclamo de un banco disparando los selectores existentes (cliente → banco). */
-function launchFromVuelta(container, clienteId, bancoId) {
+/** Abre el reclamo de un banco disparando los selectores existentes (cliente → vuelta → banco). */
+function launchFromVuelta(container, clienteId, vueltaId, bancoId) {
     const cs = container.querySelector('#claim-client-select');
     cs.value = clienteId;
     cs.dispatchEvent(new Event('change'));
+    // Fijar la vuelta del chip: sin esto se abriría el reclamo de otra vuelta del mismo banco.
+    const vs = container.querySelector('#claim-vuelta-select');
+    const vOpt = [...vs.options].find(o => o.value === vueltaId);
+    if (!vOpt) { avisoFlotante('⚠️ No se encontró la vuelta de este banco.'); return; }
+    vs.selectedIndex = vOpt.index;
+    vs.dispatchEvent(new Event('change'));
     const bs = container.querySelector('#claim-bank-select');
     const opt = [...bs.options].find(o => o.getAttribute('data-bank-id') === bancoId);
     if (!opt) {
-        // Aviso no bloqueante (un alert() nativo congelaría la página)
-        const t = document.createElement('div');
-        t.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:#b45309;color:#fff;padding:0.75rem 1rem;border-radius:8px;z-index:99999;font-size:0.9rem;max-width:340px;';
-        t.textContent = '⚠️ El cliente no tiene tarjetas registradas de este banco. Regístralas en Tarjetas.';
-        document.body.appendChild(t);
-        setTimeout(() => t.remove(), 6000);
+        avisoFlotante('⚠️ El banco no está disponible en esta vuelta.');
         return;
     }
     bs.selectedIndex = opt.index;
@@ -152,37 +159,42 @@ function launchFromVuelta(container, clienteId, bancoId) {
     setTimeout(() => container.querySelector('#claim-info')?.scrollIntoView({ behavior: 'smooth' }), 150);
 }
 
+/** Aviso no bloqueante (un alert() nativo congelaría la página). */
+function avisoFlotante(mensaje) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:#b45309;color:#fff;padding:0.75rem 1rem;border-radius:8px;z-index:99999;font-size:0.9rem;max-width:340px;';
+    t.textContent = mensaje;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 6000);
+}
+
 function setupClientSelector(container) {
     const clientSelect = container.querySelector('#claim-client-select');
     clientSelect.addEventListener('change', () => {
         const clientId = clientSelect.value;
+        const vueltaSelect = container.querySelector('#claim-vuelta-select');
         const bankSelect = container.querySelector('#claim-bank-select');
         container.querySelector('#claim-detail-list-section').style.display = 'none';
         container.querySelector('#claim-info').innerHTML = '';
+        bankSelect.innerHTML = '<option value="">-- Primero seleccione una vuelta --</option>';
         renderVueltaLauncher(container); // el bloque "Reclamar por vuelta" respeta el cliente elegido
 
         if (!clientId) {
-            bankSelect.innerHTML = '<option value="">-- Primero seleccione un cliente --</option>';
+            vueltaSelect.innerHTML = '<option value="">-- Primero seleccione un cliente --</option>';
             return;
         }
 
-        // Obtener bancos del cliente (de sus tarjetas)
-        const clientCards = cardRepository.findByClientId(clientId);
-        const clientBankIds = [...new Set(clientCards.map(c => c.bancoId))];
-        
-        if (clientBankIds.length === 0) {
-            bankSelect.innerHTML = '<option value="">-- El cliente no tiene tarjetas registradas. Presione "Refrescar Datos" --</option>';
-            return;
-        }
+        // Vueltas reclamables del cliente: cerradas y ya amarradas a su siniestro.
+        // "La vuelta ES el siniestro": elegir la vuelta = elegir de qué siniestro se reclama.
+        const vueltas = getAllVueltas()
+            .filter(v => v.clienteId === clientId && v.estado === 'cerrada' && v.siniestroId)
+            .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
-        // Obtener siniestros del cliente
-        const clientIncidents = incidentRepository.getAll().filter(inc => inc.clienteId === clientId);
-
-        if (clientIncidents.length === 0) {
+        if (vueltas.length === 0) {
             // ¿Tiene una vuelta cerrada SIN denuncia? Entonces el siniestro está esperando la denuncia.
             const vueltaSinDen = getAllVueltas().find(v => v.clienteId === clientId && v.estado === 'cerrada' && !v.denunciaEvidencia);
             if (vueltaSinDen) {
-                bankSelect.innerHTML = '<option value="">-- Falta subir la denuncia de su vuelta --</option>';
+                vueltaSelect.innerHTML = '<option value="">-- Falta subir la denuncia de su vuelta --</option>';
                 container.querySelector('#claim-info').innerHTML = `
                     <div style="background:#160f26;border:1px solid #7c3aed;border-radius:8px;padding:0.7rem 0.9rem;font-size:0.88rem;color:#cbd5e1;">
                         📄 Este cliente tiene una <strong>vuelta cerrada sin denuncia</strong> (del ${formatDate(vueltaSinDen.fecha)}).
@@ -195,35 +207,58 @@ function setupClientSelector(container) {
                 });
                 return;
             }
-            bankSelect.innerHTML = '<option value="">-- El cliente no tiene siniestros registrados --</option>';
+            vueltaSelect.innerHTML = '<option value="">-- El cliente no tiene vueltas cerradas --</option>';
             return;
         }
 
-        // Obtener todos los reclamos del cliente
-        const clientIncidentIds = clientIncidents.map(inc => inc.id);
-        const allClaims = claimRepository.getAll();
-        const clientClaims = allClaims.filter(claim => clientIncidentIds.includes(claim.siniestroId));
-        
-        // Crear opciones: mostrar bancos donde tiene tarjetas
-        const options = clientBankIds.map(bankId => {
-            const bank = bankRepository.getById(bankId);
-            const bankName = bank ? bank.nombre : 'Desconocido';
-            
-            // Buscar si ya existe un reclamo para este banco
-            const existingClaim = clientClaims.find(c => c.bancoId === bankId);
-            
-            if (existingClaim) {
-                const estado = existingClaim.estado ? ` (${existingClaim.estado})` : '';
-                return `<option value="${esc(existingClaim.id)}" data-bank-id="${esc(bankId)}" data-exists="true">${esc(bankName)}${estado}</option>`;
-            } else {
-                return `<option value="" data-bank-id="${esc(bankId)}" data-exists="false">${esc(bankName)} (Nuevo)</option>`;
-            }
+        vueltaSelect.innerHTML = '<option value="">-- Seleccione la vuelta --</option>' + vueltas.map(v => {
+            const nombres = bancosDeVuelta(v).map(b => b.nombre).join(', ');
+            return `<option value="${esc(v.id)}">Vuelta del ${formatDate(v.fecha)}${nombres ? ' — ' + esc(nombres) : ''}</option>`;
         }).join('');
 
-        bankSelect.innerHTML = `<option value="">-- Seleccione un banco --</option>` + options;
+        // Si solo tiene una vuelta, seleccionarla automáticamente (sin fricción).
+        if (vueltas.length === 1) {
+            vueltaSelect.selectedIndex = 1;
+            vueltaSelect.dispatchEvent(new Event('change'));
+        }
+    });
+}
 
-        // Si solo tiene un banco, seleccionarlo automáticamente
-        if (clientBankIds.length === 1) {
+/** Al elegir la vuelta se cargan SUS bancos y se resuelven los reclamos de ESE siniestro. */
+function setupVueltaSelector(container) {
+    const vueltaSelect = container.querySelector('#claim-vuelta-select');
+    vueltaSelect.addEventListener('change', () => {
+        const bankSelect = container.querySelector('#claim-bank-select');
+        container.querySelector('#claim-detail-list-section').style.display = 'none';
+        container.querySelector('#claim-info').innerHTML = '';
+
+        const vuelta = getAllVueltas().find(v => v.id === vueltaSelect.value);
+        if (!vuelta) {
+            bankSelect.innerHTML = '<option value="">-- Primero seleccione una vuelta --</option>';
+            return;
+        }
+
+        const bancos = bancosDeVuelta(vuelta);
+        if (bancos.length === 0) {
+            bankSelect.innerHTML = '<option value="">-- Esta vuelta no tiene bancos --</option>';
+            return;
+        }
+
+        // Reclamos SOLO del siniestro de esta vuelta (antes se tomaba el primero del cliente).
+        const claimsDeVuelta = claimRepository.getAll().filter(c => c.siniestroId === vuelta.siniestroId);
+        const options = bancos.map(b => {
+            const existingClaim = claimsDeVuelta.find(c => c.bancoId === b.id);
+            if (existingClaim) {
+                const estado = existingClaim.estado ? ` (${existingClaim.estado})` : '';
+                return `<option value="${esc(existingClaim.id)}" data-bank-id="${esc(b.id)}" data-exists="true">${esc(b.nombre)}${estado}</option>`;
+            }
+            return `<option value="" data-bank-id="${esc(b.id)}" data-exists="false">${esc(b.nombre)} (Nuevo)</option>`;
+        }).join('');
+
+        bankSelect.innerHTML = '<option value="">-- Seleccione un banco --</option>' + options;
+
+        // Si la vuelta tiene un solo banco, seleccionarlo automáticamente.
+        if (bancos.length === 1) {
             bankSelect.selectedIndex = 1;
             bankSelect.dispatchEvent(new Event('change'));
         }
@@ -244,24 +279,23 @@ function setupBankSelector(container) {
             return;
         }
 
-        const clientId = container.querySelector('#claim-client-select').value;
-
         // Si no existe reclamo, crear uno automáticamente
         if (!exists) {
-            // Buscar el primer siniestro del cliente
-            const clientIncidents = incidentRepository.getAll().filter(inc => inc.clienteId === clientId);
-            if (clientIncidents.length === 0) {
-                alert('El cliente no tiene siniestros registrados. Debe crear un siniestro primero.');
+            // El siniestro sale de la VUELTA elegida (antes se usaba el primero del
+            // cliente, lo que colgaba el reclamo de la vuelta equivocada).
+            const vueltaSelect = container.querySelector('#claim-vuelta-select');
+            const vuelta = getAllVueltas().find(v => v.id === vueltaSelect.value);
+            if (!vuelta || !vuelta.siniestroId) {
+                alert('Seleccione la vuelta del reclamo.');
                 bankSelect.value = '';
                 return;
             }
 
-            const incident = clientIncidents[0]; // Usar el primer siniestro
             const today = new Date().toISOString().split('T')[0];
 
             // Crear reclamo automáticamente
             const { createClaim } = await import('../services/claimService.js');
-            const result = createClaim(incident.id, bankId, today, null, null);
+            const result = createClaim(vuelta.siniestroId, bankId, today, null, null);
             
             if (!result.success) {
                 alert('Error al crear reclamo: ' + result.errors.map(e => e.message).join(', '));

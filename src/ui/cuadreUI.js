@@ -2,8 +2,8 @@ import { getActiveClient } from '../state/clientContext.js';
 import { clientRepository } from '../repositories/clientRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import {
-    MONEDAS, reclamosNoConcluidosDeCliente,
-    getCuadreByRecarga, getOrCreateCuadre, reclamoIdsDe, setReclamos, setTipoCambio,
+    MONEDAS,
+    getCuadreByRecarga, getOrCreateCuadre, setTipoCambio, bancosDeRecarga, esInformativo,
     getGastos, addGasto, updateGasto, deleteGasto, deleteCuadre, computeSaldo,
 } from '../services/cuadreService.js';
 import { getAllRecargas, searchRecargas, getRecarga } from '../services/rechargeService.js';
@@ -27,7 +27,7 @@ function cuadreSignature() {
         const c = getCuadreByRecarga(r.id);
         if (!c) { parts.push('r' + r.id + ':nc'); continue; }
         parts.push(`c${c.id}:${c.reclamoIds || ''}:${c.tipoCambio || ''}`);
-        for (const g of getGastos(c.id)) parts.push('g' + g.id + ':' + g.monto + ':' + (g.evidencia || ''));
+        for (const g of getGastos(c.id)) parts.push('g' + g.id + ':' + g.monto + ':' + (g.informativo ? '1' : '0') + ':' + (g.bancoId || '') + ':' + (g.evidencia || ''));
     }
     return parts.join('|');
 }
@@ -110,8 +110,6 @@ function renderEditor(container, recarga) {
     const cli = clientRepository.getById(recarga.clienteId);
     const nombreCli = cli ? `${cli.nombreCompleto || ''} ${cli.apellidosCompletos || ''}`.trim() : '—';
     const r = computeSaldo(cuadre);
-    const seleccionados = new Set(reclamoIdsDe(cuadre));
-    const reclamos = reclamosNoConcluidosDeCliente(recarga.clienteId);
     const gastos = getGastos(cuadre.id);
 
     // Estado del saldo
@@ -125,30 +123,29 @@ function renderEditor(container, recarga) {
         : `<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
             <thead><tr style="color:#9ca3af;text-align:left;">
                 <th style="padding:0.3rem 0.5rem;">Banco</th><th style="padding:0.3rem 0.5rem;text-align:right;">Recarga</th>
-                <th style="padding:0.3rem 0.5rem;text-align:right;">Reclamos</th><th style="padding:0.3rem 0.5rem;text-align:right;">Dif.</th></tr></thead>
+                <th style="padding:0.3rem 0.5rem;text-align:right;">Gastos</th><th style="padding:0.3rem 0.5rem;text-align:right;">Dif.</th></tr></thead>
             <tbody>${r.porBanco.map(b => `<tr style="border-top:1px solid #1f2937;">
                 <td style="padding:0.3rem 0.5rem;color:#e2e8f0;">${esc(b.bancoNombre)}</td>
                 <td style="padding:0.3rem 0.5rem;text-align:right;color:#34d399;">${money(b.recargaSoles)}</td>
-                <td style="padding:0.3rem 0.5rem;text-align:right;color:#60a5fa;">${money(b.reclamosSoles)}</td>
-                <td style="padding:0.3rem 0.5rem;text-align:right;color:#e2e8f0;">${money(b.recargaSoles - b.reclamosSoles)}</td></tr>`).join('')}</tbody></table>`;
+                <td style="padding:0.3rem 0.5rem;text-align:right;color:#fbbf24;">${money(b.gastosSoles)}</td>
+                <td style="padding:0.3rem 0.5rem;text-align:right;color:${Math.abs(b.diff) < 0.005 ? '#34d399' : '#e2e8f0'};">${money(b.diff)}</td></tr>`).join('')}</tbody></table>`;
 
-    const reclamosHtml = reclamos.length === 0 ? '<div style="color:#6b7280;padding:0.4rem 0.6rem;">El cliente no tiene reclamos sin concluir.</div>'
-        : reclamos.map(rc => `<label style="display:flex;align-items:center;gap:0.6rem;padding:0.4rem 0.5rem;border-top:1px solid #1f2937;cursor:pointer;">
-            <input type="checkbox" class="cd-claim" data-id="${esc(rc.id)}" ${seleccionados.has(rc.id) ? 'checked' : ''}>
-            <span style="flex:1;color:#e2e8f0;">${esc(rc.bancoNombre)} <span style="color:#6b7280;">· ${esc(rc.estado)}</span></span>
-            <span style="color:#60a5fa;font-weight:600;">${money(rc.montoTotal)}</span>
-        </label>`).join('');
-
+    const bancoNombreDe = (id) => id ? (bankRepository.getById(id)?.nombre || '—') : null;
     const gastosHtml = gastos.length === 0 ? '<div style="color:#6b7280;padding:0.4rem 0.6rem;">Sin gastos registrados.</div>'
-        : gastos.map(g => `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.6rem;border-top:1px solid #1f2937;flex-wrap:wrap;">
+        : gastos.map(g => {
+            const info = esInformativo(g);
+            const bn = bancoNombreDe(g.bancoId);
+            return `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.6rem;border-top:1px solid #1f2937;flex-wrap:wrap;${info ? 'opacity:0.9;' : ''}">
             ${miniatura(g.evidencia)}
             <div style="flex:1;min-width:150px;">
-                <div style="color:#e2e8f0;">${esc(g.concepto)} <span style="color:#fbbf24;font-weight:700;">${esc(money(g.monto, g.moneda))}</span></div>
-                <div style="color:#9ca3af;font-size:0.8rem;">${esc(formatDate(g.fecha))}</div>
+                <div style="color:#e2e8f0;">${esc(g.concepto)} <span style="color:${info ? '#94a3b8' : '#fbbf24'};font-weight:700;">${esc(money(g.monto, g.moneda))}</span>
+                    ${info ? '<span style="background:#334155;color:#cbd5e1;border-radius:99px;padding:1px 8px;font-size:0.7rem;margin-left:4px;">ℹ️ informativo</span>' : ''}</div>
+                <div style="color:#9ca3af;font-size:0.8rem;">${bn ? '🏦 ' + esc(bn) + ' · ' : ''}${esc(formatDate(g.fecha))}${info ? ' · no suma ni resta' : ''}</div>
             </div>
             <button type="button" class="btn-icon primary cd-gasto-edit" data-id="${esc(g.id)}" title="Editar">✏️</button>
             <button type="button" class="btn-icon danger cd-gasto-del" data-id="${esc(g.id)}" title="Eliminar">🗑️</button>
-        </div>`).join('');
+        </div>`;
+        }).join('');
 
     container.innerHTML = `
         <button type="button" id="cd-volver" class="btn btn-secondary" style="margin-bottom:0.8rem;">← Volver a la lista</button>
@@ -160,7 +157,7 @@ function renderEditor(container, recarga) {
                 </div>
                 <div style="text-align:right;">
                     <div style="color:${saldoColor};font-weight:800;font-size:1.15rem;">${esc(saldoTxt)}</div>
-                    <div style="color:#6b7280;font-size:0.8rem;">Recarga ${money(r.recargaSoles)} − Reclamos ${money(r.reclamosSoles)} − Gastos ${money(r.gastosSoles)}</div>
+                    <div style="color:#6b7280;font-size:0.8rem;">Recarga ${money(r.recargaSoles)} − Gastos ${money(r.gastosSoles)}</div>
                 </div>
             </div>
             <div style="padding:0.5rem 0.7rem;display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;border-top:1px solid #1f2937;">
@@ -174,13 +171,8 @@ function renderEditor(container, recarga) {
         </div>
 
         <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:0.5rem 0.6rem;margin-bottom:1rem;">
-            <div style="color:#9ca3af;font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;padding:0.3rem 0.5rem;">Desglose por banco (referencia)</div>
+            <div style="color:#9ca3af;font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;padding:0.3rem 0.5rem;">Desglose por banco (recarga − gastos)</div>
             ${bancosHtml}
-        </div>
-
-        <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:0.5rem 0.6rem;margin-bottom:1rem;">
-            <div style="color:#9ca3af;font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;padding:0.3rem 0.5rem;">Reclamos no concluidos (marca los que entran)</div>
-            ${reclamosHtml}
         </div>
 
         <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:0.5rem 0.6rem;">
@@ -194,7 +186,7 @@ function renderEditor(container, recarga) {
     container.querySelector('#cd-volver').addEventListener('click', () => { openRecargaId = null; paint(container); });
     container.querySelector('#cd-add-gasto').addEventListener('click', () => openGastoModal(container, recarga, cuadre, null));
     container.querySelector('#cd-borrar').addEventListener('click', async () => {
-        if (await confirmarEliminacion('¿Eliminar este cuadre y sus gastos? (La recarga y los reclamos NO se borran.)')) {
+        if (await confirmarEliminacion('¿Eliminar este cuadre y sus gastos? (La recarga NO se borra.)')) {
             deleteCuadre(cuadre.id);
             openRecargaId = null;
             paint(container);
@@ -203,12 +195,6 @@ function renderEditor(container, recarga) {
     const tcInput = container.querySelector('#cd-tc');
     tcInput.addEventListener('change', () => { setTipoCambio(cuadre.id, tcInput.value); paint(container); });
 
-    container.querySelectorAll('.cd-claim').forEach(chk => chk.addEventListener('change', () => {
-        const ids = Array.from(container.querySelectorAll('.cd-claim'))
-            .filter(c => c.checked).map(c => c.getAttribute('data-id'));
-        setReclamos(cuadre.id, ids);
-        paint(container);
-    }));
     container.querySelectorAll('.cd-gasto-edit').forEach(b => b.addEventListener('click', () => {
         const g = gastos.find(x => x.id === b.getAttribute('data-id'));
         if (g) openGastoModal(container, recarga, cuadre, g);
@@ -229,6 +215,10 @@ function openGastoModal(container, recarga, cuadre, gasto) {
     const hoy = new Date().toISOString().split('T')[0];
     const monedaOpts = MONEDAS.map(m =>
         `<option value="${m}" ${(gasto ? gasto.moneda : 'PEN') === m ? 'selected' : ''}>${m === 'USD' ? 'USD ($)' : 'PEN (S/)'}</option>`).join('');
+    const bancos = bancosDeRecarga(recarga.id);
+    const bancoOpts = `<option value="">— General (sin banco) —</option>` + bancos.map(b =>
+        `<option value="${esc(b.id)}" ${(gasto?.bancoId || '') === b.id ? 'selected' : ''}>${esc(b.nombre)}</option>`).join('');
+    const esInfo = gasto ? esInformativo(gasto) : false;
 
     openFormModal({
         title: gasto ? 'Editar gasto' : 'Agregar gasto',
@@ -240,7 +230,12 @@ function openGastoModal(container, recarga, cuadre, gasto) {
                 <div class="form-group"><label>Monto *</label><input type="number" id="cd-g-monto" min="0" step="0.01" value="${esc(gasto?.monto ?? '')}" placeholder="Ej: 20.00" required></div>
                 <div class="form-group"><label>Moneda *</label><select id="cd-g-moneda">${monedaOpts}</select></div>
             </div>
+            <div class="form-group"><label>Banco</label><select id="cd-g-banco">${bancoOpts}</select></div>
             <div class="form-group"><label>Fecha *</label><input type="date" id="cd-g-fecha" value="${esc(gasto?.fecha || hoy)}" required></div>
+            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin:0.2rem 0 0.6rem;">
+                <input type="checkbox" id="cd-g-info" ${esInfo ? 'checked' : ''}>
+                <span style="color:#cbd5e1;">ℹ️ Informativo <span style="color:#9ca3af;font-size:0.85rem;">(solo referencia — no suma ni resta en el saldo)</span></span>
+            </label>
             <div class="form-group">
                 <label>Evidencia (opcional)</label>
                 <input type="file" id="cd-g-evidencia" accept=".pdf,.jpg,.jpeg,.png,.webp">
@@ -266,6 +261,8 @@ function openGastoModal(container, recarga, cuadre, gasto) {
                 monto: form.querySelector('#cd-g-monto').value,
                 moneda: form.querySelector('#cd-g-moneda').value,
                 fecha: form.querySelector('#cd-g-fecha').value,
+                bancoId: form.querySelector('#cd-g-banco').value || null,
+                informativo: form.querySelector('#cd-g-info').checked,
                 evidencia: evidenceUrl,
                 observaciones: form.querySelector('#cd-g-obs').value,
             };

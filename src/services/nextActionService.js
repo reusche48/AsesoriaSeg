@@ -26,7 +26,8 @@ export function getGeneralStepsForClient(clientId) {
     // Paso 3: pagos por banco. Los bancos ya cubiertos por una vuelta cerrada ya no se exigen.
     const cerrados = bancosCerradosSet(clientId);
     const pagosSt = getPaymentStatusForClient(clientId).filter(s => !cerrados.has(s.bancoId));
-    const pagosPend = pagosSt.filter(s => s.estado !== 'al_dia');
+    // 'bloqueado' = tarjetas ya bloqueadas → no exige pago (como 'al_dia').
+    const pagosPend = pagosSt.filter(s => s.estado !== 'al_dia' && s.estado !== 'bloqueado');
     let pagoEstado, pagoDetalle;
     if (pagosSt.length === 0) { pagoEstado = 'hecho'; pagoDetalle = cerrados.size ? 'Pagos cubiertos / vuelta realizada' : 'Sin seguros que pagar'; }
     else if (pagosPend.length === 0) { pagoEstado = 'hecho'; pagoDetalle = 'Todos los bancos al día'; }

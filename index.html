@@ -38,6 +38,23 @@
             </div>
             <main id="app-container" class="app-container"></main>
         </div>
+        <!-- Columna de alertas "Atender hoy" (fija en escritorio; panel deslizante en móvil) -->
+        <aside class="alerts-rail" id="alerts-rail" style="display:none">
+            <div class="alerts-rail-head">
+                <strong>🔥 Atender hoy <span id="alerts-rail-count" class="alerts-rail-count"></span></strong>
+                <div class="alerts-rail-head-actions">
+                    <button type="button" id="alerts-rail-refresh" class="alerts-rail-refresh" title="Actualizar alertas" aria-label="Actualizar">🔄</button>
+                    <button type="button" id="alerts-rail-vertodo" class="alerts-rail-link" title="Ver la lista completa de alertas">ver todo</button>
+                    <button type="button" id="alerts-rail-close" class="alerts-rail-close" aria-label="Cerrar">&times;</button>
+                </div>
+            </div>
+            <div class="alerts-rail-body" id="alerts-rail-content"></div>
+        </aside>
+        <div class="alerts-rail-backdrop" id="alerts-rail-backdrop"></div>
+        <button type="button" class="alerts-fab" id="alerts-fab" aria-label="Ver alertas" style="display:none">
+            <span class="alerts-fab-ico">🔔</span>
+            <span class="alerts-fab-badge" id="alerts-fab-badge" style="display:none"></span>
+        </button>
     </div>
 
     <!-- Modal para visualizar archivos/evidencias -->

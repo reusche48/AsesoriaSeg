@@ -1,4 +1,5 @@
 import { getEventsWithDeadline, addClaimEvent, getClaimsWithoutActivity } from '../services/claimEventService.js';
+import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { claimRepository } from '../repositories/claimRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
@@ -9,7 +10,6 @@ import { CONFIG_KEYS, DEFAULT_DIAS_DORMIDO, getConfigNumber, setConfigValue } fr
 import { getAtenderHoy } from '../services/attentionService.js';
 import { setActiveClient, getActiveClient, onActiveClientChange } from '../state/clientContext.js';
 import { advanceRepository } from '../repositories/advanceRepository.js';
-import { setEventPreselectClaim } from './claimEventUI.js';
 import { startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
 
 // Pestaña activa de Alertas (se conserva entre re-renders / auto-refresco)
@@ -26,10 +26,14 @@ function alertsSignature() {
     return `e${ev}|c${cl}|s${st}|k${cfg}|v${vu}|p${pg}`;
 }
 
-/** Navega a la sección Eventos mostrando todos los eventos del reclamo. */
+/** Navega a la Guía del cliente dueño del reclamo (ahí se ve el historial completo). */
 function verHistorialEnEventos(claimId) {
-    setEventPreselectClaim(claimId);
-    window.location.hash = '#eventos';
+    const claim = claimRepository.getById(claimId);
+    const incident = claim ? incidentRepository.getById(claim.siniestroId) : null;
+    if (incident && incident.clienteId) {
+        setActiveClient(incident.clienteId);
+    }
+    window.location.hash = '#guia';
 }
 
 // Holds evidence URL between file upload and form submit
@@ -405,7 +409,7 @@ function renderVencimientos(container, events) {
         return `<tr>
             <td>${esc(clientLabel)}</td>
             <td>${esc(bankLabel)}</td>
-            <td>${esc(ev.descripcion)}</td>
+            <td>${esc(ev.descripcion)}${(ev.observacion || '').trim() ? `<div style="color:#9ca3af;font-size:0.82rem;white-space:normal;word-break:break-word;">${esc((ev.observacion || '').trim().slice(0, 110))}${(ev.observacion || '').trim().length > 110 ? '…' : ''}</div>` : ''}</td>
             <td>${formatDate(ev.fecha)}</td>
             <td>${ev.diasEspera} ${tipoLabel}</td>
             <td>${formatDate(ev.fechaVencimiento)}</td>
@@ -537,13 +541,18 @@ function renderInactividad(container, items) {
 // eventoOrigenId != null → es un seguimiento de un vencimiento
 // eventoOrigenId == null → es un evento nuevo
 // ──────────────────────────────────────────────
-function openClaimEventFormModal(container, reclamoId, eventoOrigenId) {
+export function openClaimEventFormModal(container, reclamoId, eventoOrigenId, onDone) {
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
     const defaultDateTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     _alertEvidenceUrl = null;
+    const archivosAdjuntos = [];
+    let archivoSeq = 0;
 
     const isFollowup = !!eventoOrigenId;
+    // Un seguimiento hereda el paso del evento al que responde, para que aparezca
+    // en la secuencia de ese paso en la Guía (no solo en "Ver historial").
+    const stepIdHeredado = eventoOrigenId ? (claimEventRepository.getById(eventoOrigenId)?.stepId || null) : null;
     const title = isFollowup ? 'Registrar Seguimiento' : 'Registrar Evento';
     const descOptions = ['Reclamo presentado','Documentación enviada','En revisión','Reclamo observado','Avance del reclamo','Reclamo indemnizado','Reclamo rechazado'];
     const defaultDesc = isFollowup ? 'Avance del reclamo' : 'Reclamo presentado';
@@ -578,6 +587,15 @@ function openClaimEventFormModal(container, reclamoId, eventoOrigenId) {
                 <label>Evidencia (archivo opcional)</label>
                 <input type="file" id="modal-alerta-evidencia">
                 <div id="modal-alerta-evidencia-status" style="font-size:0.8rem;color:#9ca3af;margin-top:4px;min-height:1.2em;"></div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Archivos adjuntos (varios — opcional)</label>
+                <input type="file" id="al-archivos" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.zip">
+                <div id="al-archivos-status" style="font-size:0.82rem;margin-top:4px;min-height:1.2em;color:#9ca3af;"></div>
+                <div id="al-archivos-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;"></div>
+                <div style="font-size:0.75rem;color:#6b7280;margin-top:2px;">Los archivos que enviaste (aparte de la evidencia). Puedes elegirlos uno por uno o varios a la vez — se van sumando a la lista.</div>
             </div>
         </div>
         <div class="form-row">
@@ -618,9 +636,69 @@ function openClaimEventFormModal(container, reclamoId, eventoOrigenId) {
                         _alertEvidenceUrl = null;
                     });
             });
+
+            // Archivos adjuntos (varios): se van SUMANDO a la lista con cada selección.
+            const inputArch = overlay.querySelector('#al-archivos');
+            const statusArch = overlay.querySelector('#al-archivos-status');
+            const listArch = overlay.querySelector('#al-archivos-list');
+            const updateArchivosStatus = () => {
+                const total = archivosAdjuntos.length;
+                if (!total) { statusArch.textContent = ''; return; }
+                const subiendo = archivosAdjuntos.filter(a => a.status === 'subiendo').length;
+                const error = archivosAdjuntos.filter(a => a.status === 'error').length;
+                if (subiendo) { statusArch.style.color = '#f59e0b'; statusArch.textContent = `⏳ Subiendo ${subiendo} de ${total}...`; }
+                else if (error) { statusArch.style.color = '#ef4444'; statusArch.textContent = `⚠️ ${error} archivo(s) con error. Quítalos con la × o vuelve a intentar.`; }
+                else { statusArch.style.color = '#10b981'; statusArch.textContent = `✓ ${total} archivo(s) listo(s).`; }
+            };
+            const renderArchivosList = () => {
+                listArch.innerHTML = archivosAdjuntos.map((a, i) => {
+                    const ext = (a.name.split('.').pop() || '?').toUpperCase();
+                    const thumb = a.objectUrl
+                        ? `<img src="${a.objectUrl}" style="width:100%;height:100%;object-fit:cover;display:block;">`
+                        : `<div style="font-size:0.65rem;font-weight:700;color:#9ca3af;">${esc(ext)}</div>`;
+                    const badge = a.status === 'subiendo' ? '⏳' : a.status === 'error' ? '⚠️' : '✓';
+                    const badgeColor = a.status === 'subiendo' ? '#f59e0b' : a.status === 'error' ? '#ef4444' : '#10b981';
+                    return `<div style="width:76px;">
+                        <div style="position:relative;width:72px;height:72px;border:1px solid #334155;border-radius:8px;overflow:hidden;background:#0f172a;display:flex;align-items:center;justify-content:center;">
+                            ${thumb}
+                            <button type="button" class="al-arch-del" data-idx="${i}" title="Quitar archivo" style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#7f1d1d;color:#fff;border:none;cursor:pointer;font-size:0.7rem;line-height:1;padding:0;">×</button>
+                            <span style="position:absolute;bottom:2px;left:2px;font-size:0.75rem;color:${badgeColor};">${badge}</span>
+                        </div>
+                        <div style="font-size:0.65rem;color:#9ca3af;margin-top:2px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(a.name)}">${esc(a.name)}</div>
+                    </div>`;
+                }).join('');
+                listArch.querySelectorAll('.al-arch-del').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const idx = parseInt(btn.getAttribute('data-idx'), 10);
+                        const [removed] = archivosAdjuntos.splice(idx, 1);
+                        if (removed?.objectUrl) URL.revokeObjectURL(removed.objectUrl);
+                        renderArchivosList(); updateArchivosStatus();
+                    });
+                });
+            };
+            inputArch?.addEventListener('change', () => {
+                const files = Array.from(inputArch.files || []);
+                inputArch.value = '';
+                files.forEach(file => {
+                    const entry = { id: ++archivoSeq, file, name: file.name, url: null, status: 'subiendo',
+                        objectUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null };
+                    archivosAdjuntos.push(entry);
+                    uploadFile(file).then(url => {
+                        if (!archivosAdjuntos.includes(entry)) return;
+                        entry.url = url; entry.status = 'ok'; renderArchivosList(); updateArchivosStatus();
+                    }).catch(() => {
+                        if (!archivosAdjuntos.includes(entry)) return;
+                        entry.status = 'error'; renderArchivosList(); updateArchivosStatus();
+                    });
+                });
+                renderArchivosList(); updateArchivosStatus();
+            });
         },
         onSubmit: (form) => {
             clearModalErrors();
+            if (archivosAdjuntos.some(a => a.status === 'subiendo')) { showModalAlert('Espere a que terminen de subir los archivos.', 'error'); return; }
+            if (archivosAdjuntos.some(a => a.status === 'error')) { showModalAlert('Hay archivos con error. Quítalos con la × antes de registrar.', 'error'); return; }
+            const archivosUrls = archivosAdjuntos.filter(a => a.status === 'ok' && a.url).map(a => a.url);
             const diasStr = form.querySelector('#modal-alerta-dias').value;
             const dias = diasStr ? parseInt(diasStr) : null;
             const result = addClaimEvent(
@@ -631,11 +709,13 @@ function openClaimEventFormModal(container, reclamoId, eventoOrigenId) {
                 _alertEvidenceUrl,
                 dias,
                 dias ? form.querySelector('#modal-alerta-tipodias').value : null,
-                eventoOrigenId
+                eventoOrigenId,
+                stepIdHeredado,
+                archivosUrls
             );
             if (result.success) {
                 closeFormModal();
-                renderAlertsSection(container);
+                if (onDone) onDone(); else renderAlertsSection(container);
             } else {
                 const overlay = document.querySelector('.form-modal-overlay');
                 if (overlay) result.errors.forEach(err => {

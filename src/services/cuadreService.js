@@ -89,6 +89,11 @@ export function getGastos(cuadreId) {
         .sort((a, b) => new Date(a.fecha || 0) - new Date(b.fecha || 0));
 }
 
+/** ¿El gasto es solo informativo? (no suma ni resta en el saldo) */
+export function esInformativo(gasto) {
+    return Number(gasto?.informativo) === 1 || gasto?.informativo === true;
+}
+
 export function addGasto(cuadreId, data) {
     if (!cuadreId) return { success: false, error: 'Cuadre inválido.' };
     if (!data.concepto || !data.concepto.trim()) return { success: false, error: 'Ingrese el concepto del gasto.' };
@@ -103,6 +108,8 @@ export function addGasto(cuadreId, data) {
         fecha: data.fecha || new Date().toISOString().split('T')[0],
         evidencia: data.evidencia || null,
         observaciones: (data.observaciones || '').trim() || null,
+        informativo: data.informativo ? 1 : 0,
+        bancoId: data.bancoId || null,
     });
     return { success: true, gasto };
 }
@@ -122,6 +129,8 @@ export function updateGasto(id, data) {
     if (data.fecha !== undefined) patch.fecha = data.fecha || null;
     if (data.evidencia !== undefined) patch.evidencia = data.evidencia || null;
     if (data.observaciones !== undefined) patch.observaciones = (data.observaciones || '').trim() || null;
+    if (data.informativo !== undefined) patch.informativo = data.informativo ? 1 : 0;
+    if (data.bancoId !== undefined) patch.bancoId = data.bancoId || null;
     const gasto = cuadreGastoRepository.update(id, patch);
     return { success: true, gasto };
 }
@@ -131,17 +140,32 @@ export function deleteGasto(id) {
     return { success: true };
 }
 
+/** Bancos presentes en la recarga (para asignar gastos por banco). */
+export function bancosDeRecarga(recargaId) {
+    const items = rechargeItemRepository.findByRechargeId(recargaId);
+    const map = new Map();
+    for (const i of items) {
+        if (!map.has(i.bancoId)) {
+            map.set(i.bancoId, { id: i.bancoId, nombre: bankRepository.getById(i.bancoId)?.nombre || '—' });
+        }
+    }
+    return [...map.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
+}
+
 // ── Cálculo del saldo ──────────────────────────────────────
 
 /**
- * Calcula el saldo del cuadre en soles.
+ * Calcula el saldo del cuadre en soles: recarga − gastos (los gastos informativos
+ * NO suman ni restan). Los reclamos ya no intervienen en el saldo.
  * @returns {{recargaSoles, reclamosSoles, gastosSoles, saldo, cuadrado, faltaTipoCambio,
- *            hayUSD, porBanco: Array<{bancoNombre, recargaSoles, reclamosSoles}>}}
+ *            hayUSD, porBanco: Array<{bancoId, bancoNombre, recargaSoles, gastosSoles, diff}>}}
  */
 export function computeSaldo(cuadre) {
     const tc = Number(cuadre?.tipoCambio) || null;
     const items = rechargeItemRepository.findByRechargeId(cuadre.recargaId);
-    const gastos = cuadreGastoRepository.findByCuadreId(cuadre.id);
+    const gastosAll = cuadreGastoRepository.findByCuadreId(cuadre.id);
+    // Solo los gastos NO informativos afectan el saldo y el desglose.
+    const gastos = gastosAll.filter(g => !esInformativo(g));
 
     const hayUSD = items.some(i => i.moneda === 'USD') || gastos.some(g => g.moneda === 'USD');
     const aSoles = (monto, moneda) => {
@@ -153,37 +177,31 @@ export function computeSaldo(cuadre) {
     const recargaSoles = items.reduce((s, i) => s + aSoles(i.monto, i.moneda), 0);
     const gastosSoles = gastos.reduce((s, g) => s + aSoles(g.monto, g.moneda), 0);
 
-    // Reclamos elegidos (montoTotal ya está en soles)
-    const ids = reclamoIdsDe(cuadre);
-    const claimsById = new Map();
-    for (const id of ids) {
-        const c = claimRepository.getById(id);
-        if (c) claimsById.set(id, c);
-    }
-    const reclamosSoles = [...claimsById.values()].reduce((s, c) => s + (Number(c.montoTotal) || 0), 0);
-
-    // Desglose por banco (referencia)
+    // Desglose por banco: recarga (de los items) menos gastos (los gastos reales con bancoId)
     const bancosMap = new Map();
-    for (const i of items) {
-        const nombre = bankRepository.getById(i.bancoId)?.nombre || '—';
-        const cur = bancosMap.get(i.bancoId) || { bancoNombre: nombre, recargaSoles: 0, reclamosSoles: 0 };
-        cur.recargaSoles += aSoles(i.monto, i.moneda);
-        bancosMap.set(i.bancoId, cur);
-    }
-    for (const c of claimsById.values()) {
-        const nombre = bankRepository.getById(c.bancoId)?.nombre || '—';
-        const cur = bancosMap.get(c.bancoId) || { bancoNombre: nombre, recargaSoles: 0, reclamosSoles: 0 };
-        cur.reclamosSoles += Number(c.montoTotal) || 0;
-        bancosMap.set(c.bancoId, cur);
-    }
+    const ensure = (bancoId) => {
+        if (!bancosMap.has(bancoId)) {
+            bancosMap.set(bancoId, {
+                bancoId,
+                bancoNombre: bankRepository.getById(bancoId)?.nombre || '—',
+                recargaSoles: 0,
+                gastosSoles: 0,
+            });
+        }
+        return bancosMap.get(bancoId);
+    };
+    for (const i of items) ensure(i.bancoId).recargaSoles += aSoles(i.monto, i.moneda);
+    for (const g of gastos) { if (g.bancoId) ensure(g.bancoId).gastosSoles += aSoles(g.monto, g.moneda); }
 
     const faltaTipoCambio = hayUSD && !tc;
-    const saldo = recargaSoles - reclamosSoles - gastosSoles;
+    const saldo = recargaSoles - gastosSoles;
     const cuadrado = !faltaTipoCambio && Math.abs(saldo) < EPS;
 
     return {
-        recargaSoles, reclamosSoles, gastosSoles, saldo, cuadrado, faltaTipoCambio, hayUSD,
-        porBanco: [...bancosMap.values()].sort((a, b) => a.bancoNombre.localeCompare(b.bancoNombre)),
+        recargaSoles, reclamosSoles: 0, gastosSoles, saldo, cuadrado, faltaTipoCambio, hayUSD,
+        porBanco: [...bancosMap.values()]
+            .map(b => ({ ...b, diff: b.recargaSoles - b.gastosSoles }))
+            .sort((a, b) => a.bancoNombre.localeCompare(b.bancoNombre)),
     };
 }
 

@@ -1,17 +1,22 @@
 import { getActiveClient, setActiveClient } from '../state/clientContext.js';
 import { clientRepository } from '../repositories/clientRepository.js';
+import { claimRepository } from '../repositories/claimRepository.js';
 import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { openFileViewer } from '../app.js';
 import { getCollection, loadCollections, uploadFile } from '../storage.js';
 import { changeClaimState, reopenClaim } from '../services/claimService.js';
 import { getEventsWithDeadline } from '../services/claimEventService.js';
+import { getVueltas, getEvidencias, getBlockingCodes, bancosDeVuelta } from '../services/vueltaService.js';
 import { openFormModal, closeFormModal, showModalAlert } from './modalHelper.js';
 import { getNextActionsForClient } from '../services/nextActionService.js';
 import { markStepComplete, reopenStep, esOpcional } from '../services/claimStepService.js';
 import { confirmarEliminacion } from '../utils.js';
-import { setEventPreselectClaim, setEventPreselectEvent } from './claimEventUI.js';
+import { openEventModal } from './claimEventUI.js';
 import { openStepEventModal } from './claimEventModal.js';
 import { startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
+
+// Vuelta elegida en el selector (solo aplica cuando el cliente tiene 2+ vueltas).
+let selectedVueltaId = null;
 
 /** Huella de datos para detectar avances de otros dispositivos. */
 function guiaSignature() {
@@ -94,7 +99,11 @@ function renderForClient(container, client) {
     const generalesHtml = generales.map(g => {
         const cfg = ESTADO_GENERAL[g.estado] || ESTADO_GENERAL.pendiente;
         const clickable = g.hash && g.estado !== 'proximamente';
-        return `<div class="guia-gen-step" ${clickable ? `data-hash="${esc(g.hash)}" style="cursor:pointer;"` : ''}
+        const esVuelta = g.hash === '#vuelta';
+        const clickAttr = clickable
+            ? (esVuelta ? 'data-vudetalle="1" title="Toca para ver toda la información de la vuelta (denuncia, evidencias, códigos de bloqueo)" style="cursor:pointer;"' : `data-hash="${esc(g.hash)}" style="cursor:pointer;"`)
+            : '';
+        return `<div class="guia-gen-step" ${clickAttr}
             style="display:flex;align-items:center;gap:0.75rem;padding:0.55rem 0.75rem;border-bottom:1px solid #1f2937;">
             <span style="width:22px;height:22px;border-radius:50%;background:#1f2937;color:#9ca3af;display:inline-flex;align-items:center;justify-content:center;font-size:0.78rem;flex:0 0 auto;">${g.orden}</span>
             <div style="flex:1;">
@@ -105,9 +114,42 @@ function renderForClient(container, client) {
         </div>`;
     }).join('');
 
-    const bancosHtml = porBanco.length === 0
+    // Selector de vuelta: SOLO si el cliente tiene 2+ vueltas. Al elegir una, se muestra
+    // el trámite de sus bancos; los reclamos SIN vuelta se muestran SIEMPRE (no se filtran).
+    const vueltas = getVueltas(client.id);
+    let selectorHtml = '';
+    let bancosMostrar = porBanco;
+    if (vueltas.length >= 2) {
+        if (!vueltas.some(v => v.id === selectedVueltaId)) selectedVueltaId = vueltas[0].id;
+        const sv = vueltas.find(v => v.id === selectedVueltaId);
+        const vueltaSiniestros = new Set(vueltas.map(v => v.siniestroId).filter(Boolean));
+        bancosMostrar = porBanco.filter(b => {
+            const claim = claimRepository.getById(b.claimId);
+            if (!claim) return false;
+            const enSeleccionada = sv && sv.siniestroId && claim.siniestroId === sv.siniestroId;
+            const sinVuelta = !vueltaSiniestros.has(claim.siniestroId);
+            return enSeleccionada || sinVuelta;
+        });
+        const hayFueraDeVuelta = bancosMostrar.length < porBanco.length;
+        selectorHtml = `
+            <h3 style="color:#cbd5e1;font-size:0.95rem;margin:1rem 0 0.4rem;">¿Qué vuelta deseas ver?</h3>
+            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+                ${vueltas.map(v => {
+                    const bancos = bancosDeVuelta(v).map(b => esc(b.nombre)).join(', ') || '—';
+                    const sel = v.id === selectedVueltaId;
+                    return `<button type="button" class="guia-vuelta-pick" data-vuelta="${esc(v.id)}"
+                        style="text-align:left;padding:0.5rem 0.8rem;border-radius:8px;cursor:pointer;border:1.5px solid ${sel ? '#7c3aed' : '#1f2937'};background:${sel ? '#1e1533' : '#111827'};color:#e2e8f0;">
+                        <div style="font-weight:700;">🔄 Vuelta del ${formatDateSolo(v.fecha)}${v.estado === 'cerrada' ? '' : ' <span style="color:#fcd34d;font-size:0.72rem;">(en curso)</span>'}</div>
+                        <div style="font-size:0.78rem;color:#9ca3af;">${bancos}</div>
+                    </button>`;
+                }).join('')}
+            </div>
+            ${hayFueraDeVuelta ? '<div style="font-size:0.78rem;color:#6b7280;margin-top:0.35rem;">Se muestran los bancos de la vuelta elegida + los reclamos que no pertenecen a ninguna vuelta.</div>' : ''}`;
+    }
+
+    const bancosHtml = bancosMostrar.length === 0
         ? '<div class="empty-state">Este cliente aún no tiene reclamos. Inicia uno en Reclamos.</div>'
-        : porBanco.map(b => renderBancoCard(b)).join('');
+        : bancosMostrar.map(b => renderBancoCard(b)).join('');
 
     container.innerHTML = `
         <div class="section">
@@ -120,6 +162,7 @@ function renderForClient(container, client) {
             </div>
             <h3 style="color:#cbd5e1;font-size:0.95rem;margin:1rem 0 0.25rem;">Pasos generales</h3>
             <div style="background:#111827;border:1px solid #1f2937;border-radius:8px;overflow:hidden;">${generalesHtml}</div>
+            ${selectorHtml}
             <h3 style="color:#cbd5e1;font-size:0.95rem;margin:1.25rem 0 0.5rem;">Trámite por banco</h3>
             <div style="display:flex;flex-direction:column;gap:0.75rem;">${bancosHtml}</div>
         </div>`;
@@ -131,8 +174,15 @@ function renderForClient(container, client) {
         renderGuiaSection(container);
     });
     container.querySelector('#guia-cambiar').addEventListener('click', () => { setActiveClient(null); renderGuiaSection(container); });
+    container.querySelectorAll('.guia-vuelta-pick').forEach(btn => btn.addEventListener('click', () => {
+        selectedVueltaId = btn.getAttribute('data-vuelta');
+        renderGuiaSection(container);
+    }));
     container.querySelectorAll('.guia-gen-step[data-hash]').forEach(el => {
         el.addEventListener('click', () => { window.location.hash = el.getAttribute('data-hash'); });
+    });
+    container.querySelectorAll('.guia-gen-step[data-vudetalle]').forEach(el => {
+        el.addEventListener('click', () => openVueltaDetalleModal(container, client.id));
     });
 
     // Evidencias de las partes registradas en cada paso
@@ -140,15 +190,13 @@ function renderForClient(container, client) {
         a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openFileViewer(a.getAttribute('data-file')); });
     });
 
-    // Al tocar la línea del evento: ir al módulo Eventos y abrirlo en edición.
+    // Al tocar la línea del evento: abrir el modal de detalle (ver / editar / eliminar) aquí mismo.
     container.querySelectorAll('.guia-ev-det').forEach(el => {
         el.addEventListener('click', (e) => {
-            if (e.target.closest('.guia-ev-ver')) return; // el 📎 abre la evidencia, no navega
+            if (e.target.closest('.guia-ev-ver')) return; // el 📎 abre la evidencia, no el detalle
             const evId = el.getAttribute('data-ev');
             const ev = claimEventRepository.getAll().find(x => x.id === evId);
-            setEventPreselectEvent(evId);
-            if (ev) setEventPreselectClaim(ev.reclamoId);
-            window.location.hash = '#eventos';
+            if (ev) openEventModal(container, ev, { onDone: () => renderGuiaSection(container) });
         });
     });
 
@@ -167,8 +215,7 @@ function renderForClient(container, client) {
                     markStepComplete(stepId);
                     renderGuiaSection(container);
                 } else if (action === 'historial') {
-                    setEventPreselectClaim(b.claimId);
-                    window.location.hash = '#eventos';
+                    openHistorialModal(container, b);
                 } else if (action === 'culminar') {
                     openCulminarModal(container, b);
                 } else if (action === 'reabrir-reclamo') {
@@ -221,6 +268,10 @@ function renderBancoCard(b) {
     if (b.sinPasos) {
         pasosHtml = `<div style="color:#9ca3af;font-size:0.85rem;padding:0.5rem 0;">Sin pasos configurados para este banco. Configúralos en <a href="#plantillasPasos" style="color:#7c3aed;">Pasos por Banco</a>.</div>`;
     } else {
+        // Primer paso del reclamo: ahí se muestran también los eventos sin paso del reclamo.
+        const primerPasoId = b.steps.length
+            ? b.steps.slice().sort((a, c) => (Number(a.orden) || 0) - (Number(c.orden) || 0))[0].id
+            : null;
         pasosHtml = b.steps.map(s => {
             const cfg = ESTADO_PASO[s.estado] || ESTADO_PASO.pendiente;
             const esActual = actualesSet.has(s.id);
@@ -231,9 +282,9 @@ function renderBancoCard(b) {
                 ? '<span style="color:#6b7280;">— No realizado</span>'
                 : cfg.label;
             const right = btns.length
-                ? `<div style="display:flex;flex-direction:column;gap:0.3rem;align-items:stretch;">${btns.join('')}</div>`
+                ? `<div class="guia-step-btns" style="display:flex;flex-direction:column;gap:0.3rem;align-items:stretch;">${btns.join('')}</div>`
                 : `<span style="color:${cfg.color};font-size:0.76rem;white-space:nowrap;">${labelEstado}${s.estado === 'completado' && !reclamoCerrado ? ` <button type="button" data-action="reabrir" data-step="${esc(s.id)}" title="Reabrir este paso (si lo completaste por error)" style="background:none;border:1px solid #374151;border-radius:6px;color:#9ca3af;cursor:pointer;font-size:0.72rem;padding:1px 7px;margin-left:6px;">↩ Reabrir</button>` : ''}</span>`;
-            return `<div style="display:flex;align-items:flex-start;gap:0.6rem;padding:0.5rem 0;border-top:1px solid #1f2937;${esActual ? 'background:#0b1220;' : ''}">
+            return `<div class="guia-step-row" style="display:flex;align-items:flex-start;gap:0.6rem;padding:0.5rem 0;border-top:1px solid #1f2937;${esActual ? 'background:#0b1220;' : ''}">
                 <span style="width:20px;text-align:center;color:#64748b;font-size:0.78rem;padding-top:3px;">${stage}</span>
                 <div style="flex:1;min-width:0;">
                     <span style="color:${esActual ? '#f1f5f9' : '#cbd5e1'};${esActual ? 'font-weight:600;' : ''}">${esc(s.nombre)}</span>
@@ -241,23 +292,43 @@ function renderBancoCard(b) {
                     ${esActual && acc ? `<div style="font-size:0.8rem;color:${acc.color};margin-top:2px;">➜ ${esc(acc.texto)}</div>` : ''}
                     ${s.descripcion ? `<div style="font-size:0.78rem;color:#9ca3af;margin-top:3px;white-space:pre-wrap;line-height:1.35;word-break:break-word;">${descToHtml(s.descripcion)}</div>` : ''}
                     ${(() => {
-                        if (!esActual) return '';
-                        const evsPaso = eventosDelPaso(s.id);
+                        // Muestra los eventos del paso ACTIVO y de los COMPLETADOS. Además, el
+                        // PRIMER paso incluye los eventos del reclamo SIN paso (ej. "Reclamo
+                        // presentado" o seguimientos antiguos), para que no queden fuera de la secuencia.
+                        const esCompletado = s.estado === 'completado';
+                        const esPrimero = s.id === primerPasoId;
+                        let evsPaso = eventosDelPaso(s.id);
+                        if (esPrimero) {
+                            const all = claimEventRepository.getAll();
+                            const huerfanos = all.filter(e => e.reclamoId === b.claimId && !e.stepId)
+                                .map(e => ({ ...e, respondido: all.some(x => x.eventoOrigenId === e.id) }));
+                            if (huerfanos.length) {
+                                evsPaso = evsPaso.concat(huerfanos).sort((a, c) => new Date(a.fecha) - new Date(c.fecha)
+                                    || new Date(a.fechaRegistro || a.fecha) - new Date(c.fechaRegistro || c.fecha));
+                            }
+                        }
+                        if (!esActual && !esCompletado && !esPrimero) return '';
                         if (!evsPaso.length) return '';
-                        return `<div style="margin-top:6px;border-top:1px dashed #1f2937;padding-top:5px;">
-                            <div style="font-size:0.72rem;color:#64748b;font-weight:700;margin-bottom:2px;">REGISTRADO EN ESTE PASO (${evsPaso.length})</div>
-                            ${evsPaso.slice(0, 5).map(e => `<div class="guia-ev-det" data-ev="${esc(e.id)}" title="Toca para abrir este evento en Eventos y modificarlo" style="font-size:0.78rem;color:#cbd5e1;padding:2px 0;word-break:break-word;cursor:pointer;">
+                        // En orden cronológico (antiguo→nuevo) mostramos los más recientes;
+                        // los anteriores se avisan arriba para no ocultar la actividad reciente.
+                        const MAX_EV = 20;
+                        const visiblesEv = evsPaso.slice(-MAX_EV);
+                        const ocultasEv = evsPaso.length - visiblesEv.length;
+                        const encTxt = esCompletado ? `✓ REGISTRADO EN ESTE PASO (${evsPaso.length})` : `REGISTRADO EN ESTE PASO (${evsPaso.length})`;
+                        return `<div style="margin-top:6px;border-top:1px dashed #1f2937;padding-top:5px;${esCompletado ? 'opacity:0.85;' : ''}">
+                            <div style="font-size:0.72rem;color:${esCompletado ? '#10b981' : '#64748b'};font-weight:700;margin-bottom:2px;">${encTxt}</div>
+                            ${ocultasEv > 0 ? `<div style="font-size:0.74rem;color:#6b7280;">… ${ocultasEv} anterior(es) en "Ver historial"</div>` : ''}
+                            ${visiblesEv.map(e => `<div class="guia-ev-det" data-ev="${esc(e.id)}" title="Toca para ver, editar o eliminar este evento" style="font-size:0.78rem;color:#cbd5e1;padding:6px 0;border-top:1px solid #1f2937;word-break:break-word;cursor:pointer;">
                                 • ${formatDateTime(e.fecha)} — ${esc((e.observacion || e.descripcion || '').slice(0, 90))}${(e.observacion || '').length > 90 ? '…' : ''}
                                 ${e.evidencia ? ` <a href="#" class="guia-ev-ver" data-file="${esc(e.evidencia)}" style="color:#7c3aed;white-space:nowrap;">📎 ver</a>` : ''}
                                 ${(e.archivos || '').split(',').filter(Boolean).length ? ` <span style="color:#64748b;white-space:nowrap;" title="Archivos adjuntos">📎${(e.archivos || '').split(',').filter(Boolean).length}</span>` : ''}
                                 ${plazoBadge(e)}
-                                <span style="color:#4b5563;font-size:0.72rem;"> ✏️ abrir en Eventos</span>
+                                <span style="color:#4b5563;font-size:0.72rem;"> ✏️ abrir</span>
                             </div>`).join('')}
-                            ${evsPaso.length > 5 ? `<div style="font-size:0.74rem;color:#6b7280;">… y ${evsPaso.length - 5} más en "Ver historial"</div>` : ''}
                         </div>`;
                     })()}
                 </div>
-                <div style="flex:0 0 auto;text-align:right;">${right}</div>
+                <div class="guia-step-actions" style="flex:0 0 auto;text-align:right;">${right}</div>
             </div>`;
         }).join('');
     }
@@ -305,7 +376,9 @@ function eventosDelPaso(stepId) {
     const all = claimEventRepository.getAll();
     return all.filter(e => e.stepId === stepId)
         .map(e => ({ ...e, respondido: all.some(x => x.eventoOrigenId === e.id) }))
-        .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+        // Orden cronológico: lo primero que se hizo arriba, lo último abajo.
+        .sort((a, b) => new Date(a.fecha) - new Date(b.fecha)
+            || new Date(a.fechaRegistro || a.fecha) - new Date(b.fechaRegistro || b.fecha));
 }
 
 /** Etiqueta de plazo de un evento (si lo tiene). */
@@ -326,6 +399,143 @@ function formatDateTime(str) {
     if (isNaN(d)) return str;
     return d.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' }) + ' ' +
         d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+}
+
+const TIPO_LABEL_VU = { retiro_cajero: 'Retiro cajero', compra: 'Compra', transferencia: 'Transferencia', otro: 'Otro' };
+
+/** Fecha corta (solo día/mes/año). */
+function formatDateSolo(dateStr) {
+    if (!dateStr) return '—';
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(dateStr + 'T00:00:00') : new Date(dateStr);
+    if (isNaN(d)) return dateStr;
+    return d.toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Miniatura clicable de un archivo (imagen real si es foto, ícono si es PDF/otro). */
+function miniaturaVu(url) {
+    if (!url) return '';
+    const clean = String(url).split('?')[0].split('#')[0].toLowerCase();
+    const esImg = /\.(jpg|jpeg|png|webp|gif)$/.test(clean);
+    const base = 'width:44px;height:44px;border-radius:6px;border:1px solid #334155;cursor:pointer;flex:0 0 auto;';
+    return esImg
+        ? `<img src="${esc(url)}" class="vudet-ver" data-file="${esc(url)}" alt="archivo" title="Ver archivo" style="${base}object-fit:cover;background:#fff;">`
+        : `<span class="vudet-ver" data-file="${esc(url)}" title="Ver archivo (PDF)" style="${base}display:inline-flex;align-items:center;justify-content:center;font-size:1.2rem;background:#111827;">📄</span>`;
+}
+
+/** Modal de solo lectura con TODA la información de la(s) vuelta(s) del cliente. */
+async function openVueltaDetalleModal(container, clientId) {
+    const overlay = document.createElement('div');
+    overlay.className = 'audit-popup-overlay';
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.innerHTML = `<div class="audit-popup" style="min-width:320px;max-width:680px;"><div style="color:#9ca3af;padding:1.2rem;text-align:center;">Cargando información de la vuelta…</div></div>`;
+
+    // Guía no precarga estas colecciones: se traen al abrir el detalle (y frescas para reflejar otros equipos).
+    try { await loadCollections(['vueltas', 'vueltaEvidencias', 'blockingCodes'], true); } catch (e) { /* usar lo que haya en caché */ }
+    if (!document.body.contains(overlay)) return; // el usuario cerró mientras cargaba
+
+    const vueltas = getVueltas(clientId);
+    const estadoTag = (v) => v.estado === 'cerrada'
+        ? `<span style="background:#064e3b;color:#6ee7b7;border-radius:99px;padding:1px 9px;font-size:0.72rem;font-weight:700;">🔒 Cerrada${v.fechaCierre ? ' · ' + formatDateSolo(v.fechaCierre) : ''}</span>`
+        : `<span style="background:#78350f;color:#fcd34d;border-radius:99px;padding:1px 9px;font-size:0.72rem;font-weight:700;">🟡 En curso</span>`;
+
+    const vueltaHtml = (v) => {
+        const bancos = bancosDeVuelta(v);
+        const evid = getEvidencias(v.id);
+        const codes = getBlockingCodes(v.id);
+        const codesByBank = new Set(codes.map(c => c.bancoId));
+
+        const bancosHtml = bancos.map(b => {
+            const evB = evid.filter(e => e.bancoId === b.id);
+            const cdB = codes.filter(c => c.bancoId === b.id);
+            const faltaCodigo = !codesByBank.has(b.id);
+            const evRows = evB.length ? evB.map(e => `<div style="display:flex;align-items:center;gap:0.55rem;font-size:0.82rem;color:#cbd5e1;padding:3px 0;">
+                ${miniaturaVu(e.evidencia) || '<span style="width:44px;flex:0 0 auto;text-align:center;color:#4b5563;">—</span>'}
+                <span style="flex:1;min-width:0;word-break:break-word;">${esc(TIPO_LABEL_VU[e.tipo] || e.tipo || '')}${e.concepto ? ' — ' + esc(e.concepto) : ''}${e.fecha ? ' · ' + formatDateSolo(e.fecha) : ''}${e.hora ? ' ' + esc(e.hora) : ''}</span>
+                ${e.evidencia ? `<a href="#" class="vudet-ver" data-file="${esc(e.evidencia)}" style="color:#7c3aed;white-space:nowrap;">ver</a>` : ''}
+            </div>`).join('') : '<div style="color:#6b7280;font-size:0.8rem;">Sin evidencias</div>';
+            const cdRows = cdB.length ? cdB.map(c => `<div style="display:flex;align-items:center;gap:0.55rem;font-size:0.82rem;color:#cbd5e1;padding:3px 0;">
+                ${c.evidencia ? miniaturaVu(c.evidencia) : '<span style="width:44px;flex:0 0 auto;text-align:center;font-size:1.2rem;">🔒</span>'}
+                <span style="flex:1;min-width:0;word-break:break-word;"><strong>${esc(c.codigo || '')}</strong>${c.observacion ? ' — ' + esc(c.observacion) : ''}${c.fecha ? ' · ' + formatDateSolo(c.fecha) : ''}${c.hora ? ' ' + esc(c.hora) : ''}</span>
+                ${c.evidencia ? `<a href="#" class="vudet-ver" data-file="${esc(c.evidencia)}" style="color:#7c3aed;white-space:nowrap;">ver</a>` : ''}
+            </div>`).join('') : `<div style="color:${faltaCodigo ? '#ef4444' : '#6b7280'};font-size:0.8rem;">${faltaCodigo ? '⚠️ Falta código de bloqueo' : 'Sin códigos'}</div>`;
+
+            return `<div style="background:#0b1220;border:1px solid ${faltaCodigo ? '#7f1d1d' : '#1f2937'};border-radius:8px;padding:0.6rem 0.8rem;">
+                <strong style="color:#f1f5f9;">🏦 ${esc(b.nombre)}</strong>
+                <div style="color:#9ca3af;font-size:0.74rem;font-weight:700;margin:0.4rem 0 0.1rem;">EVIDENCIAS (${evB.length})</div>${evRows}
+                <div style="color:#9ca3af;font-size:0.74rem;font-weight:700;margin:0.5rem 0 0.1rem;">CÓDIGOS DE BLOQUEO (${cdB.length})</div>${cdRows}
+            </div>`;
+        }).join('');
+
+        const denuncia = `<div style="background:#0b1220;border:1px solid ${v.denunciaEvidencia ? '#1f2937' : '#7c3aed'};border-radius:8px;padding:0.55rem 0.8rem;display:flex;align-items:center;gap:0.6rem;">
+            ${v.denunciaEvidencia ? miniaturaVu(v.denunciaEvidencia) : '<span style="width:44px;flex:0 0 auto;text-align:center;font-size:1.2rem;">📄</span>'}
+            <span style="flex:1;min-width:0;color:#cbd5e1;font-size:0.85rem;">📄 <strong>Denuncia</strong>${v.denunciaFecha ? ' · ' + formatDateSolo(v.denunciaFecha) : ' · sin fecha'}${v.denunciaEvidencia ? '' : ' <span style="color:#c084fc;font-weight:700;">(falta subirla)</span>'}</span>
+            ${v.denunciaEvidencia ? `<a href="#" class="vudet-ver" data-file="${esc(v.denunciaEvidencia)}" style="color:#7c3aed;white-space:nowrap;">ver</a>` : ''}
+        </div>`;
+
+        return `<div style="border:1px solid #1f2937;border-radius:10px;padding:0.7rem 0.85rem;background:#111827;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+                <span style="color:#f1f5f9;font-weight:700;">Vuelta del ${formatDateSolo(v.fecha)}</span>
+                ${estadoTag(v)}
+            </div>
+            <div style="color:#9ca3af;font-size:0.8rem;margin-bottom:0.5rem;">Bancos: ${bancos.map(b => esc(b.nombre)).join(', ') || '—'}</div>
+            ${denuncia}
+            <div style="margin-top:0.55rem;display:flex;flex-direction:column;gap:0.5rem;">${bancos.length ? bancosHtml : '<div style="color:#9ca3af;font-size:0.82rem;">Esta vuelta no tiene bancos.</div>'}</div>
+        </div>`;
+    };
+
+    overlay.innerHTML = `
+        <div class="audit-popup" style="min-width:340px;max-width:680px;max-height:85vh;overflow-y:auto;">
+            <button type="button" class="audit-close">&times;</button>
+            <h3>🔄 La Vuelta — información completa (${vueltas.length})</h3>
+            ${vueltas.length
+                ? `<div style="display:flex;flex-direction:column;gap:0.7rem;">${vueltas.map(vueltaHtml).join('')}</div>`
+                : '<div style="color:#9ca3af;padding:0.6rem;">Este cliente aún no tiene vueltas registradas.</div>'}
+            <div style="margin-top:0.8rem;border-top:1px solid #1f2937;padding-top:0.6rem;text-align:right;">
+                <button type="button" id="vudet-ir" class="btn btn-secondary" style="padding:0.35rem 0.8rem;font-size:0.82rem;">✏️ Editar en La Vuelta</button>
+            </div>
+        </div>`;
+    overlay.querySelector('.audit-close').addEventListener('click', close);
+    overlay.querySelector('#vudet-ir').addEventListener('click', () => { close(); window.location.hash = '#vuelta'; });
+    overlay.querySelectorAll('.vudet-ver').forEach(el => el.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openFileViewer(el.getAttribute('data-file')); }));
+}
+
+/** Modal con el historial completo de eventos del reclamo (ver/editar/eliminar cada uno). */
+function openHistorialModal(container, b) {
+    const overlay = document.createElement('div');
+    overlay.className = 'audit-popup-overlay';
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    function render() {
+        const all = claimEventRepository.getAll();
+        const evs = all.filter(e => e.reclamoId === b.claimId)
+            .map(e => ({ ...e, respondido: all.some(x => x.eventoOrigenId === e.id) }))
+            .sort((a, c) => new Date(a.fecha) - new Date(c.fecha)
+                || new Date(a.fechaRegistro || a.fecha) - new Date(c.fechaRegistro || c.fecha));
+        overlay.innerHTML = `
+            <div class="audit-popup" style="min-width:340px;max-width:640px;max-height:82vh;overflow-y:auto;">
+                <button type="button" class="audit-close">&times;</button>
+                <h3>📋 Historial — ${esc(b.bancoNombre)} (${evs.length})</h3>
+                ${evs.length ? evs.map(e => `<div class="hist-ev" data-ev="${esc(e.id)}" title="Toca para ver, editar o eliminar" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0;border-top:1px solid #1f2937;cursor:pointer;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="color:#cbd5e1;font-size:0.82rem;">${formatDateTime(e.fecha)} — ${esc(e.descripcion || '')}</div>
+                        ${e.observacion ? `<div style="color:#9ca3af;font-size:0.8rem;white-space:pre-wrap;word-break:break-word;">${esc(e.observacion.slice(0, 160))}${e.observacion.length > 160 ? '…' : ''}</div>` : ''}
+                        <div style="font-size:0.75rem;margin-top:2px;">${e.evidencia ? `<a href="#" class="hist-ver" data-file="${esc(e.evidencia)}" style="color:#7c3aed;">📎 evidencia</a> ` : ''}${(e.archivos || '').split(',').filter(Boolean).length ? `<span style="color:#64748b;">📎${(e.archivos || '').split(',').filter(Boolean).length} adjunto(s)</span> ` : ''}${plazoBadge(e)}</div>
+                    </div>
+                    <span style="color:#4b5563;font-size:0.72rem;white-space:nowrap;">✏️ abrir</span>
+                </div>`).join('') : '<div style="color:#9ca3af;padding:0.6rem;">Sin eventos registrados.</div>'}
+            </div>`;
+        overlay.querySelector('.audit-close').addEventListener('click', close);
+        overlay.querySelectorAll('.hist-ver').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openFileViewer(a.getAttribute('data-file')); }));
+        overlay.querySelectorAll('.hist-ev').forEach(row => row.addEventListener('click', () => {
+            const ev = claimEventRepository.getById(row.getAttribute('data-ev'));
+            if (ev) openEventModal(container, ev, { onDone: () => { renderGuiaSection(container); render(); } });
+        }));
+    }
+    render();
 }
 
 /** Modal para culminar un reclamo (observación + evidencia opcional del correo de aprobación). */

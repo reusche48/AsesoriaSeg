@@ -392,6 +392,8 @@ $TABLE_MAP = [
             'fecha' => 'fecha',
             'evidencia' => 'evidencia',
             'observaciones' => 'observaciones',
+            'informativo' => 'informativo',
+            'bancoId' => 'banco_id',
         ]
     ],
 ];
