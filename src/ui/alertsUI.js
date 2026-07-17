@@ -305,12 +305,9 @@ function renderAtenderHoy(container) {
             ? `<button type="button" class="btn btn-primary ah-pago-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">Ir a Pagos</button>`
             : it.vueltaId
             ? `<button type="button" class="btn btn-primary ah-vuelta-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">Subir denuncia</button>`
-            : [
-                `<button type="button" class="btn btn-primary ah-guia-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">Ir a Guía</button>`,
-                it.eventoId
-                    ? `<button type="button" class="btn btn-secondary ah-seg-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">+ Seguimiento</button>`
-                    : `<button type="button" class="btn btn-secondary ah-ev-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">+ Evento</button>`,
-            ].join('');
+            : it.eventoId
+                ? `<button type="button" class="btn btn-primary ah-seg-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">+ Seguimiento</button>`
+                : `<button type="button" class="btn btn-primary ah-ev-btn" data-idx="${idx}" style="padding:0.25rem 0.6rem;font-size:0.78rem;white-space:nowrap;">+ Evento</button>`;
         return `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.75rem;border-top:1px solid #1f2937;flex-wrap:wrap;">
             <span style="color:${cfg.color};font-size:0.78rem;font-weight:700;white-space:nowrap;flex:0 0 92px;">${cfg.badge}</span>
             <div style="flex:1;min-width:180px;">

@@ -169,10 +169,9 @@ function renderCard(it, idx) {
         ? `<button type="button" class="btn btn-primary rail-act" data-act="pago" data-idx="${idx}" style="padding:0.25rem 0.55rem;font-size:0.76rem;">Ir a Pagos</button>`
         : it.vueltaId
         ? `<button type="button" class="btn btn-primary rail-act" data-act="vuelta" data-idx="${idx}" style="padding:0.25rem 0.55rem;font-size:0.76rem;">Subir denuncia</button>`
-        : `<button type="button" class="btn btn-primary rail-act" data-act="guia" data-idx="${idx}" style="padding:0.25rem 0.55rem;font-size:0.76rem;">Ir a Guía</button>`
-          + (it.eventoId
-              ? `<button type="button" class="btn btn-secondary rail-act" data-act="seg" data-idx="${idx}" style="padding:0.25rem 0.55rem;font-size:0.76rem;">+ Seg.</button>`
-              : `<button type="button" class="btn btn-secondary rail-act" data-act="ev" data-idx="${idx}" style="padding:0.25rem 0.55rem;font-size:0.76rem;">+ Evento</button>`);
+        : it.eventoId
+            ? `<button type="button" class="btn btn-primary rail-act" data-act="seg" data-idx="${idx}" style="padding:0.25rem 0.55rem;font-size:0.76rem;">+ Seg.</button>`
+            : `<button type="button" class="btn btn-primary rail-act" data-act="ev" data-idx="${idx}" style="padding:0.25rem 0.55rem;font-size:0.76rem;">+ Evento</button>`;
     return `<div style="background:#111827;border:1px solid #1f2937;border-left:3px solid ${cfg.color};border-radius:8px;padding:0.5rem 0.6rem;margin-bottom:0.45rem;">
         <div style="color:${cfg.color};font-size:0.72rem;font-weight:700;">${cfg.badge} · ${cfg.diasTxt(it.dias)}</div>
         <div style="color:#9ca3af;font-size:0.8rem;margin-top:1px;">${esc(it.bancoNombre)}</div>

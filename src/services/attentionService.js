@@ -45,10 +45,10 @@ export function getAtenderHoy() {
         const claim = claimRepository.getById(e.reclamoId);
         const { clienteId, clienteNombre } = clienteDeClaim(claim);
         claimsConAlertaEvento.add(e.reclamoId);
-        // Mostrar la descripción + la observación que escribió el usuario (recortada).
+        // Mostrar SOLO la observación que escribió el usuario (recortada). Antes se
+        // anteponía e.descripcion (el nombre del paso), pero es redundante en la alerta.
         const obs = (e.observacion || '').trim();
-        const detalle = [e.descripcion, obs ? (obs.length > 90 ? obs.slice(0, 90) + '…' : obs) : '']
-            .filter(Boolean).join(' — ');
+        const detalle = obs.length > 90 ? obs.slice(0, 90) + '…' : obs;
         const sever = e.estadoAlerta === 'Vencido' ? SEV.VENCIDO
             : e.estadoAlerta === 'Vence hoy' ? SEV.VENCE_HOY
             : SEV.POR_HACER; // Pendiente dentro de plazo: visible con su cuenta regresiva
