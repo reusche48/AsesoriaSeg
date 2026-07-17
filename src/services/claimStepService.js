@@ -149,15 +149,10 @@ export function handleEventForSteps(event) {
         }
     }
 
-    // 2) Seguimiento (respuesta): completa el paso 'espera' del evento origen
-    if (event.eventoOrigenId) {
-        const origin = claimEventRepository.getById(event.eventoOrigenId);
-        const stepId = origin?.stepId;
-        if (stepId) {
-            const step = claimStepRepository.getById(stepId);
-            if (step && step.estado !== 'completado' && step.tipoPaso === 'espera') {
-                claimStepRepository.update(step.id, { estado: 'completado', fechaCompletado: now });
-            }
-        }
-    }
+    // 2) Seguimiento (respuesta): mantiene el paso EN CURSO, no lo cierra.
+    //    Antes, registrar un seguimiento marcaba el paso 'espera' como 'completado'
+    //    automáticamente. Ahora el cierre es SIEMPRE manual ("✓ Marcar respondido" →
+    //    markStepComplete), para no cerrar el paso sin que el usuario lo decida.
+    //    El paso ya pasa/queda en 'en_curso' por el caso 1 (el seguimiento hereda el
+    //    stepId del evento origen), así que aquí no hay que hacer nada.
 }
