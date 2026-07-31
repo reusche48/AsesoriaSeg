@@ -7,6 +7,43 @@ import { handleEventForSteps, computeStepsState } from './claimStepService.js';
  * Servicio de dominio para gestión de eventos de seguimiento de reclamos.
  */
 
+/** Deriva un nombre legible desde una URL de archivo (para datos antiguos). */
+function nombreDesdeUrl(u) {
+    const base = (String(u || '').split('?')[0].split('#')[0].split('/').pop()) || '';
+    try { return decodeURIComponent(base) || 'archivo'; } catch (e) { return base || 'archivo'; }
+}
+
+/**
+ * Normaliza el campo `archivos` a una lista [{u, n}] (u = url, n = nombre original).
+ * Acepta el formato NUEVO (JSON [{u,n}]), el ANTIGUO (CSV de URLs) o un array
+ * (de strings o de objetos {u,n}/{url,name}). Así es compatible con lo ya guardado.
+ */
+export function parseArchivos(archivos) {
+    if (!archivos) return [];
+    const norm = (a) => {
+        if (!a) return null;
+        if (typeof a === 'string') return a.trim() ? { u: a.trim(), n: nombreDesdeUrl(a) } : null;
+        const u = a.u || a.url;
+        return u ? { u, n: a.n || a.name || nombreDesdeUrl(u) } : null;
+    };
+    if (Array.isArray(archivos)) return archivos.map(norm).filter(Boolean);
+    const s = String(archivos).trim();
+    if (!s) return [];
+    if (s[0] === '[') {
+        try { const arr = JSON.parse(s); if (Array.isArray(arr)) return arr.map(norm).filter(Boolean); } catch (e) { /* cae a CSV */ }
+    }
+    return s.split(',').map(x => x.trim()).filter(Boolean).map(u => ({ u, n: nombreDesdeUrl(u) }));
+}
+
+/** Serializa una lista de archivos a JSON [{u,n}] para guardar (o null si vacío). */
+export function serializeArchivos(archivos) {
+    const list = parseArchivos(archivos);
+    return list.length ? JSON.stringify(list.map(a => ({ u: a.u, n: a.n }))) : null;
+}
+
+/** Cantidad de archivos adjuntos (para los badges "📎N"). */
+export function archivosCount(archivos) { return parseArchivos(archivos).length; }
+
 /**
  * Registra un evento de seguimiento en un reclamo.
  * @param {string} claimId - ID del reclamo
@@ -64,8 +101,9 @@ export function addClaimEvent(claimId, date, description, observacion, evidence,
         fechaRegistro: new Date().toISOString(),
         descripcion: description,
         observacion: observacion.trim(),
-        evidencia: evidence || null,
-        archivos: (Array.isArray(archivos) ? archivos.filter(Boolean).join(',') : archivos) || null,
+        evidencia: (evidence && typeof evidence === 'object') ? (evidence.u || null) : (evidence || null),
+        evidenciaNombre: (evidence && typeof evidence === 'object') ? (evidence.n || null) : null,
+        archivos: serializeArchivos(archivos),
         diasEspera: diasEspera || null,
         tipoDias: tipoDias || null,
         fechaVencimiento: fechaVencimiento,
@@ -156,11 +194,18 @@ export function updateClaimEvent(eventId, data) {
         observacion: data.observacion.trim(),
     };
     if (data.evidencia !== undefined) {
-        updateData.evidencia = data.evidencia || existing.evidencia;
+        // data.evidencia puede ser string (URL) u objeto {u, n} (con nombre original).
+        if (data.evidencia && typeof data.evidencia === 'object') {
+            updateData.evidencia = data.evidencia.u || null;
+            updateData.evidenciaNombre = data.evidencia.n || null;
+        } else {
+            updateData.evidencia = data.evidencia || null;
+            updateData.evidenciaNombre = data.evidencia ? existing.evidenciaNombre : null;
+        }
     }
     if (data.archivos !== undefined) {
         // Se permite quedar vacío (quitar todos los adjuntos).
-        updateData.archivos = (Array.isArray(data.archivos) ? data.archivos.filter(Boolean).join(',') : data.archivos) || null;
+        updateData.archivos = serializeArchivos(data.archivos);
     }
     // Actualizar campos de plazo si se proporcionan
     if (data.diasEspera !== undefined) {

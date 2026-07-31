@@ -50,8 +50,13 @@ function openCardForm(container, card) {
     const banks = bankRepository.getAll();
     evidenciaSeguroDataUrl = card?.evidenciaSeguro || null;
 
+    // Al AGREGAR: si ya hay un cliente elegido (filtro/cliente activo), se pre-selecciona
+    // y se bloquea el select (no se puede cambiar). Si no hay ninguno, queda habilitado.
+    const lockedClientId = card ? card.clienteId : (selectedClientId || getActiveClientId());
+    const clienteBloqueado = !!(card || lockedClientId);
+
     const clientOpts = `<option value="">-- Seleccione --</option>` + clients.map(c =>
-        `<option value="${esc(c.id)}" ${card?.clienteId === c.id ? 'selected' : ''}>${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}</option>`).join('');
+        `<option value="${esc(c.id)}" ${(card?.clienteId || lockedClientId) === c.id ? 'selected' : ''}>${esc(c.nombreCompleto)} ${esc(c.apellidosCompletos)}</option>`).join('');
     const bankOpts = `<option value="">-- Seleccione --</option>` + banks.map(b =>
         `<option value="${esc(b.id)}" ${card?.bancoId === b.id ? 'selected' : ''}>${esc(b.nombre)}</option>`).join('');
 
@@ -59,7 +64,7 @@ function openCardForm(container, card) {
         title: card ? 'Editar Tarjeta' : 'Agregar Tarjeta',
         html: `
             <div class="form-row">
-                <div class="form-group" data-field="clienteId"><label>Cliente *</label><select name="clienteId" required ${card ? 'disabled' : ''}>${clientOpts}</select><div class="error-message" data-error="clienteId"></div></div>
+                <div class="form-group" data-field="clienteId"><label>Cliente *</label><select name="clienteId" required ${clienteBloqueado ? 'disabled' : ''}>${clientOpts}</select><div class="error-message" data-error="clienteId"></div></div>
                 <div class="form-group" data-field="bancoId"><label>Banco *</label><select name="bancoId" id="modal-bank-select" required>${bankOpts}</select><div class="error-message" data-error="bancoId"></div></div>
             </div>
             <div class="form-row">
@@ -85,7 +90,7 @@ function openCardForm(container, card) {
                 <div class="form-group"><label>Comentario</label><textarea name="comentario" rows="2">${esc(card?.comentario || '')}</textarea></div>
                 <div class="form-group"><label>Estado</label><select name="activo"><option value="true" ${card?.activo !== false ? 'selected' : ''}>Activo</option><option value="false" ${card?.activo === false ? 'selected' : ''}>Desactivado</option></select></div>
             </div>
-            ${card ? `<input type="hidden" name="clienteIdHidden" value="${esc(card.clienteId)}">` : ''}
+            ${clienteBloqueado ? `<input type="hidden" name="clienteIdHidden" value="${esc(card?.clienteId || lockedClientId)}">` : ''}
         `,
         submitLabel: card ? 'Guardar Cambios' : 'Agregar Tarjeta',
         onSubmit: (form) => {

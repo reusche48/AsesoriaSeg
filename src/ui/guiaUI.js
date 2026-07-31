@@ -5,13 +5,14 @@ import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { openFileViewer } from '../app.js';
 import { getCollection, loadCollections, uploadFile } from '../storage.js';
 import { changeClaimState, reopenClaim } from '../services/claimService.js';
-import { getEventsWithDeadline } from '../services/claimEventService.js';
+import { getEventsWithDeadline, archivosCount } from '../services/claimEventService.js';
 import { getVueltas, getEvidencias, getBlockingCodes, bancosDeVuelta } from '../services/vueltaService.js';
 import { openFormModal, closeFormModal, showModalAlert } from './modalHelper.js';
 import { getNextActionsForClient } from '../services/nextActionService.js';
 import { markStepComplete, reopenStep, esOpcional } from '../services/claimStepService.js';
 import { confirmarEliminacion } from '../utils.js';
 import { openEventModal } from './claimEventUI.js';
+import { setClientToEdit } from './clientUI.js';
 import { openStepEventModal } from './claimEventModal.js';
 import { startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
 
@@ -100,17 +101,35 @@ function renderForClient(container, client) {
         const cfg = ESTADO_GENERAL[g.estado] || ESTADO_GENERAL.pendiente;
         const clickable = g.hash && g.estado !== 'proximamente';
         const esVuelta = g.hash === '#vuelta';
-        const clickAttr = clickable
-            ? (esVuelta ? 'data-vudetalle="1" title="Toca para ver toda la información de la vuelta (denuncia, evidencias, códigos de bloqueo)" style="cursor:pointer;"' : `data-hash="${esc(g.hash)}" style="cursor:pointer;"`)
+        const esCliente = g.hash === '#clientes';
+        // La FILA es clickeable para hash/vuelta. Para "Registrar cliente" NO — así se
+        // pueden seleccionar/copiar los datos (DNI, etc.); ahí el link es solo el título.
+        const clickAttr = clickable && !esCliente
+            ? (esVuelta ? 'data-vudetalle="1" title="Toca para ver toda la información de la vuelta (denuncia, evidencias, códigos de bloqueo)" style="cursor:pointer;"'
+                : `data-hash="${esc(g.hash)}" style="cursor:pointer;"`)
             : '';
+        // El paso "Registrar cliente" muestra los datos de contacto AL COSTADO del título
+        // (aprovechando el ancho). Solo el título es link; los datos son texto seleccionable.
+        const contactoHtml = `<div style="flex:1;min-width:200px;display:flex;flex-wrap:wrap;gap:3px 1.4rem;font-size:0.8rem;color:#9ca3af;">
+                <span>🪪 <strong style="color:#cbd5e1;">DNI:</strong> ${esc(client.dni || '—')}</span>
+                <span>📞 ${esc(client.telefono1 || '—')}</span>
+                <span>✉️ ${esc(client.email1 || '—')}</span>
+                <span>📍 ${esc(client.direccion || '—')}</span>
+            </div>`;
+        const mainHtml = esCliente
+            ? `<div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:0.35rem 1.2rem;">
+                <span class="guia-cliente-edit" title="Toca para ver / editar los datos del cliente" style="color:#a78bfa;font-weight:600;cursor:pointer;text-decoration:underline;">${esc(g.label)}</span>
+                ${contactoHtml}
+            </div>`
+            : `<div style="flex:1;min-width:0;">
+                <div style="color:#f1f5f9;">${esc(g.label)}</div>
+                ${g.detalle ? `<div style="font-size:0.78rem;color:#9ca3af;">${esc(g.detalle)}</div>` : ''}
+            </div>`;
         return `<div class="guia-gen-step" ${clickAttr}
             style="display:flex;align-items:center;gap:0.75rem;padding:0.55rem 0.75rem;border-bottom:1px solid #1f2937;">
             <span style="width:22px;height:22px;border-radius:50%;background:#1f2937;color:#9ca3af;display:inline-flex;align-items:center;justify-content:center;font-size:0.78rem;flex:0 0 auto;">${g.orden}</span>
-            <div style="flex:1;">
-                <div style="color:#f1f5f9;">${esc(g.label)}</div>
-                ${g.detalle ? `<div style="font-size:0.78rem;color:#9ca3af;">${esc(g.detalle)}</div>` : ''}
-            </div>
-            <span style="background:${cfg.bg};color:${cfg.color};border-radius:99px;padding:2px 10px;font-size:0.76rem;font-weight:700;white-space:nowrap;">${cfg.label}</span>
+            ${mainHtml}
+            <span style="background:${cfg.bg};color:${cfg.color};border-radius:99px;padding:2px 10px;font-size:0.76rem;font-weight:700;white-space:nowrap;align-self:center;">${cfg.label}</span>
         </div>`;
     }).join('');
 
@@ -183,6 +202,9 @@ function renderForClient(container, client) {
     });
     container.querySelectorAll('.guia-gen-step[data-vudetalle]').forEach(el => {
         el.addEventListener('click', () => openVueltaDetalleModal(container, client.id));
+    });
+    container.querySelectorAll('.guia-cliente-edit').forEach(el => {
+        el.addEventListener('click', (e) => { e.stopPropagation(); setClientToEdit(client.id); window.location.hash = '#clientes'; });
     });
 
     // Evidencias de las partes registradas en cada paso
@@ -321,7 +343,7 @@ function renderBancoCard(b) {
                             ${visiblesEv.map(e => `<div class="guia-ev-det" data-ev="${esc(e.id)}" title="Toca para ver, editar o eliminar este evento" style="font-size:0.78rem;color:#cbd5e1;padding:6px 0;border-top:1px solid #1f2937;word-break:break-word;cursor:pointer;">
                                 • ${formatDateTime(e.fecha)} — ${esc((e.observacion || e.descripcion || '').slice(0, 90))}${(e.observacion || '').length > 90 ? '…' : ''}
                                 ${e.evidencia ? ` <a href="#" class="guia-ev-ver" data-file="${esc(e.evidencia)}" style="color:#7c3aed;white-space:nowrap;">📎 ver</a>` : ''}
-                                ${(e.archivos || '').split(',').filter(Boolean).length ? ` <span style="color:#64748b;white-space:nowrap;" title="Archivos adjuntos">📎${(e.archivos || '').split(',').filter(Boolean).length}</span>` : ''}
+                                ${archivosCount(e.archivos) ? ` <span style="color:#64748b;white-space:nowrap;" title="Archivos adjuntos">📎${archivosCount(e.archivos)}</span>` : ''}
                                 ${plazoBadge(e)}
                                 <span style="color:#4b5563;font-size:0.72rem;"> ✏️ abrir</span>
                             </div>`).join('')}
@@ -523,7 +545,7 @@ function openHistorialModal(container, b) {
                     <div style="flex:1;min-width:0;">
                         <div style="color:#cbd5e1;font-size:0.82rem;">${formatDateTime(e.fecha)} — ${esc(e.descripcion || '')}</div>
                         ${e.observacion ? `<div style="color:#9ca3af;font-size:0.8rem;white-space:pre-wrap;word-break:break-word;">${esc(e.observacion.slice(0, 160))}${e.observacion.length > 160 ? '…' : ''}</div>` : ''}
-                        <div style="font-size:0.75rem;margin-top:2px;">${e.evidencia ? `<a href="#" class="hist-ver" data-file="${esc(e.evidencia)}" style="color:#7c3aed;">📎 evidencia</a> ` : ''}${(e.archivos || '').split(',').filter(Boolean).length ? `<span style="color:#64748b;">📎${(e.archivos || '').split(',').filter(Boolean).length} adjunto(s)</span> ` : ''}${plazoBadge(e)}</div>
+                        <div style="font-size:0.75rem;margin-top:2px;">${e.evidencia ? `<a href="#" class="hist-ver" data-file="${esc(e.evidencia)}" style="color:#7c3aed;">📎 evidencia</a> ` : ''}${archivosCount(e.archivos) ? `<span style="color:#64748b;">📎${archivosCount(e.archivos)} adjunto(s)</span> ` : ''}${plazoBadge(e)}</div>
                     </div>
                     <span style="color:#4b5563;font-size:0.72rem;white-space:nowrap;">✏️ abrir</span>
                 </div>`).join('') : '<div style="color:#9ca3af;padding:0.6rem;">Sin eventos registrados.</div>'}

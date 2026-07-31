@@ -200,6 +200,7 @@ $TABLE_MAP = [
             'descripcion' => 'descripcion',
             'observacion' => 'observacion',
             'evidencia' => 'evidencia',
+            'evidenciaNombre' => 'evidencia_nombre',
             'archivos' => 'archivos',
             'diasEspera' => 'dias_espera',
             'tipoDias' => 'tipo_dias',

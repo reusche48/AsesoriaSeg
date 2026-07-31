@@ -11,6 +11,7 @@ import { confirmarEliminacion } from '../utils.js';
 import { setActiveClient } from '../state/clientContext.js';
 
 let editingClientId = null;
+let pendingEditClientId = null;
 let dniFrontalDataUrl = null;
 let dniPosteriorDataUrl = null;
 let huellaDataUrl = null;
@@ -48,7 +49,17 @@ export function renderClientSection(container) {
     container.querySelector('#btn-add-client').addEventListener('click', () => openClientForm(container, null));
     setupSearchHandlers(container);
     showDefaultClients(container);
+
+    // Si se entró con un cliente pre-seleccionado (ej. desde la Guía), abrir su edición.
+    if (pendingEditClientId) {
+        const c = clientRepository.getById(pendingEditClientId);
+        pendingEditClientId = null;
+        if (c) openClientForm(container, c);
+    }
 }
+
+/** Deja un cliente marcado para abrir su edición al entrar a la sección Clientes. */
+export function setClientToEdit(clientId) { pendingEditClientId = clientId || null; }
 
 function getClientFormHtml(client) {
     const c = client || {};
@@ -302,8 +313,8 @@ function renderDniPreview(el, dataUrl, onDelete, saveAndClose) {
         <button type="button" class="dni-remove-btn" title="Eliminar foto">✕</button>
     </div>`;
     el.querySelector('img').addEventListener('click', () => openFileViewer(dataUrl));
-    el.querySelector('.dni-remove-btn').addEventListener('click', () => {
-        if (!confirm('¿Está seguro de eliminar esta foto?')) return;
+    el.querySelector('.dni-remove-btn').addEventListener('click', async () => {
+        if (!await confirmarEliminacion('¿Está seguro de eliminar esta foto?', { titulo: '🗑️ Eliminar foto' })) return;
         if (onDelete) onDelete();
         el.innerHTML = '';
         if (saveAndClose) saveAndClose();
@@ -336,8 +347,8 @@ function showPreview(ctx, selector, dataUrl, onDelete, saveAndClose) {
             <button type="button" class="btn-icon danger btn-remove-foto" title="Eliminar foto" style="font-size:0.75rem;padding:2px 5px;">❌</button>
         </div>`;
         el.querySelector('img').addEventListener('click', () => openFileViewer(dataUrl));
-        el.querySelector('.btn-remove-foto').addEventListener('click', () => {
-            if (!confirm('¿Está seguro de eliminar esta foto?')) return;
+        el.querySelector('.btn-remove-foto').addEventListener('click', async () => {
+            if (!await confirmarEliminacion('¿Está seguro de eliminar esta foto?', { titulo: '🗑️ Eliminar foto' })) return;
             if (onDelete) onDelete();
             el.innerHTML = '';
             const inputId = selector.replace('-preview', '');

@@ -190,7 +190,7 @@ function renderProfile(container, clientId, sections) {
     if (cards.length === 0) {
         html += `<div class="empty-state">No tiene tarjetas registradas.</div>`;
     } else {
-        html += `<table class="data-table"><thead><tr><th>Banco</th><th>N° Tarjeta</th><th>N° Cuenta</th><th>CCI</th><th>Moneda</th><th>Seguro</th><th>Comentario</th></tr></thead><tbody>`;
+        html += `<div class="table-scroll"><table class="data-table"><thead><tr><th>Banco</th><th>N° Tarjeta</th><th>N° Cuenta</th><th>CCI</th><th>Moneda</th><th>Seguro</th><th>Comentario</th></tr></thead><tbody>`;
         for (const card of cards) {
             const bank = bankRepository.getById(card.bancoId);
             const ins = card.seguroId ? insuranceRepository.getById(card.seguroId) : null;
@@ -205,7 +205,7 @@ function renderProfile(container, clientId, sections) {
                 <td>${esc(card.comentario || '-')}</td>
             </tr>`;
         }
-        html += `</tbody></table>`;
+        html += `</tbody></table></div>`;
     }
     html += `</div>`;
     } // fin tarjetas
@@ -232,7 +232,7 @@ function renderProfile(container, clientId, sections) {
 
             // Coberturas del reclamo
             if (item.details.length > 0) {
-                html += `<table class="data-table" style="margin-top:0.5rem;"><thead><tr><th>Cobertura</th><th>Monto</th><th>Moneda</th><th>T.C.</th><th>Mto. Soles</th></tr></thead><tbody>`;
+                html += `<div class="table-scroll"><table class="data-table" style="margin-top:0.5rem;"><thead><tr><th>Cobertura</th><th>Monto</th><th>Moneda</th><th>T.C.</th><th>Mto. Soles</th></tr></thead><tbody>`;
                 for (const d of item.details) {
                     const cov = coverageRepository.getById(d.coberturaId);
                     const mon = d.moneda || 'PEN';
@@ -246,13 +246,13 @@ function renderProfile(container, clientId, sections) {
                         <td>${montoSoles}</td>
                     </tr>`;
                 }
-                html += `</tbody></table>`;
+                html += `</tbody></table></div>`;
             }
 
             // Eventos del reclamo
             if (sec.eventos && item.events.length > 0) {
                 html += `<div style="margin-top:0.5rem;"><strong>Eventos (${item.events.length}):</strong></div>`;
-                html += `<table class="data-table" style="font-size:0.85rem;"><thead><tr><th>Fecha</th><th>Descripción</th><th>Observación</th></tr></thead><tbody>`;
+                html += `<div class="table-scroll"><table class="data-table" style="font-size:0.85rem;"><thead><tr><th>Fecha</th><th>Descripción</th><th>Observación</th></tr></thead><tbody>`;
                 const sortedEvents = [...item.events].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
                 for (const ev of sortedEvents) {
                     html += `<tr>
@@ -261,7 +261,7 @@ function renderProfile(container, clientId, sections) {
                         <td>${esc(ev.observacion || '-')}</td>
                     </tr>`;
                 }
-                html += `</tbody></table>`;
+                html += `</tbody></table></div>`;
             }
 
             html += `</div>`;
@@ -277,7 +277,7 @@ function renderProfile(container, clientId, sections) {
         html += `<div class="empty-state">No tiene adelantos registrados.</div>`;
     } else {
         let totalPEN = 0, totalUSD = 0;
-        html += `<table class="data-table"><thead><tr><th>Fecha</th><th>Monto</th><th>Moneda</th><th>Concepto</th></tr></thead><tbody>`;
+        html += `<div class="table-scroll"><table class="data-table"><thead><tr><th>Fecha</th><th>Monto</th><th>Moneda</th><th>Concepto</th></tr></thead><tbody>`;
         const sortedAdv = [...advances].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
         for (const adv of sortedAdv) {
             const mon = adv.moneda || 'PEN';
@@ -290,7 +290,7 @@ function renderProfile(container, clientId, sections) {
                 <td>${esc(adv.concepto || '-')}</td>
             </tr>`;
         }
-        html += `</tbody></table>`;
+        html += `</tbody></table></div>`;
         html += `<div style="margin-top:0.5rem;font-weight:bold;">Total PEN: S/ ${formatMoney(totalPEN)}`;
         if (totalUSD > 0) html += ` | Total USD: $ ${formatMoney(totalUSD)}`;
         html += `</div>`;

@@ -17,6 +17,7 @@ export function openStepEventModal({ claimId, paso, onDone }) {
     const defaultDateTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     const esInfo = paso.tipoPaso === 'informativo';
     let evidenceUrl = null;
+    let evidenceName = null;
     let uploading = false;
     // Cada elemento: { id, file, name, url, status: 'subiendo'|'ok'|'error', isImage, objectUrl }
     let archivosAdjuntos = [];
@@ -26,7 +27,7 @@ export function openStepEventModal({ claimId, paso, onDone }) {
         <div class="form-row">
             <div class="form-group">
                 <label>Días de espera para respuesta</label>
-                <input type="number" id="se-dias" min="1" step="1" value="${paso.diasEspera || ''}" placeholder="Ej: 15">
+                <input type="number" id="se-dias" min="0" step="1" value="0" placeholder="0 = sin plazo">
             </div>
             <div class="form-group">
                 <label>Tipo de días</label>
@@ -73,13 +74,13 @@ export function openStepEventModal({ claimId, paso, onDone }) {
             const status = overlay.querySelector('#se-evidencia-status');
             input.addEventListener('change', () => {
                 const file = input.files[0];
-                if (!file) { evidenceUrl = null; status.textContent = ''; return; }
+                if (!file) { evidenceUrl = null; evidenceName = null; status.textContent = ''; return; }
                 uploading = true; status.textContent = '⏳ Subiendo archivo...'; status.style.color = '#f59e0b';
                 uploadFile(file).then(url => {
-                    evidenceUrl = url; uploading = false;
-                    status.textContent = '✓ Archivo subido'; status.style.color = '#10b981';
+                    evidenceUrl = url; evidenceName = file.name; uploading = false;
+                    status.textContent = `✓ ${file.name}`; status.style.color = '#10b981';
                 }).catch(() => {
-                    evidenceUrl = null; uploading = false; input.value = '';
+                    evidenceUrl = null; evidenceName = null; uploading = false; input.value = '';
                     status.textContent = 'Error al subir el archivo.'; status.style.color = '#ef4444';
                 });
             });
@@ -173,13 +174,14 @@ export function openStepEventModal({ claimId, paso, onDone }) {
             if (archivosAdjuntos.some(a => a.status === 'error')) {
                 showModalAlert('Hay archivos con error. Quítalos con la × antes de registrar.', 'error'); return;
             }
-            const archivosUrls = archivosAdjuntos.filter(a => a.status === 'ok' && a.url).map(a => a.url);
+            const archivosUrls = archivosAdjuntos.filter(a => a.status === 'ok' && a.url).map(a => ({ u: a.url, n: a.name }));
             const fecha = form.querySelector('#se-fecha').value;
             const obs = form.querySelector('#se-obs').value;
             const diasStr = esInfo ? '' : form.querySelector('#se-dias').value;
             const dias = diasStr ? parseInt(diasStr) : null;
             const tipoDias = dias ? form.querySelector('#se-tipodias').value : null;
-            const result = addClaimEvent(claimId, fecha, paso.nombre, obs, evidenceUrl, dias, tipoDias, null, paso.id, archivosUrls);
+            const evidenciaPayload = evidenceUrl ? { u: evidenceUrl, n: evidenceName } : null;
+            const result = addClaimEvent(claimId, fecha, paso.nombre, obs, evidenciaPayload, dias, tipoDias, null, paso.id, archivosUrls);
             if (result.success) {
                 closeFormModal();
                 if (onDone) onDone();

@@ -1,4 +1,4 @@
-import { addClaimEvent, getClaimEvents, getLatestEvents, updateClaimEvent, deleteClaimEvent } from '../services/claimEventService.js';
+import { addClaimEvent, getClaimEvents, getLatestEvents, updateClaimEvent, deleteClaimEvent, parseArchivos } from '../services/claimEventService.js';
 import { claimRepository } from '../repositories/claimRepository.js';
 import { claimEventRepository } from '../repositories/claimEventRepository.js';
 import { incidentRepository } from '../repositories/incidentRepository.js';
@@ -8,10 +8,11 @@ import { claimStepRepository } from '../repositories/claimStepRepository.js';
 import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
-import { handleFileUpload, exportToExcel } from '../utils.js';
+import { handleFileUpload, exportToExcel, confirmarEliminacion } from '../utils.js';
 import { getActiveClientId } from '../state/clientContext.js';
 
 let selectedEventEvidenceDataUrl = null;
+let selectedEventEvidenceName = null;
 let eventEvidenceUploading = false;
 let selectedEventArchivos = [];
 let eventArchivosUploading = false;
@@ -326,7 +327,8 @@ export function openEventModal(container, eventObj, opts = {}) {
     `;
 
     selectedEventEvidenceDataUrl = editing ? (eventObj.evidencia || null) : null;
-    selectedEventArchivos = editing ? (eventObj.archivos || '').split(',').map(s => s.trim()).filter(Boolean) : [];
+    selectedEventEvidenceName = editing ? (eventObj.evidenciaNombre || null) : null;
+    selectedEventArchivos = editing ? parseArchivos(eventObj.archivos) : []; // [{u, n}]
     eventArchivosUploading = false;
 
     openFormModal({
@@ -381,16 +383,23 @@ export function openEventModal(container, eventObj, opts = {}) {
                     return;
                 }
                 if (selectedEventEvidenceDataUrl) {
-                    evStatus.innerHTML = `<span style="color:#10b981;">✓ Evidencia adjunta</span>
-                        <a href="#" id="ev-ver" style="color:#7c3aed;margin-left:8px;">Ver</a>
-                        <a href="#" id="ev-quitar" style="color:#ef4444;margin-left:8px;">Quitar</a>`;
+                    const evNom = selectedEventEvidenceName || (String(selectedEventEvidenceDataUrl || '').split('?')[0].split('/').pop()) || 'Evidencia adjunta';
+                    const evNomCorto = evNom.length > 40 ? evNom.slice(0, 40) + '…' : evNom;
+                    evStatus.innerHTML = `<div style="display:flex;align-items:center;gap:8px;">
+                        ${miniaturaEvento(selectedEventEvidenceDataUrl)}
+                        <span style="color:#10b981;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(evNom)}">✓ ${escapeHtml(evNomCorto)}</span>
+                        <a href="#" id="ev-ver" style="color:#7c3aed;white-space:nowrap;">Ver</a>
+                        <a href="#" id="ev-quitar" style="color:#ef4444;white-space:nowrap;">Quitar</a>
+                    </div>`;
                     evStatus.querySelector('#ev-ver').addEventListener('click', (e) => {
                         e.preventDefault();
                         openFileViewer(selectedEventEvidenceDataUrl);
                     });
-                    evStatus.querySelector('#ev-quitar').addEventListener('click', (e) => {
+                    evStatus.querySelector('#ev-quitar').addEventListener('click', async (e) => {
                         e.preventDefault();
+                        if (!await confirmarEliminacion('¿Quitar esta evidencia del evento? Se aplicará al Guardar Cambios.', { titulo: '🗑️ Quitar evidencia', confirmLabel: 'Quitar' })) return;
                         selectedEventEvidenceDataUrl = null;
+                        selectedEventEvidenceName = null;
                         evidenceInput.value = '';
                         renderEvStatus();
                     });
@@ -408,8 +417,10 @@ export function openEventModal(container, eventObj, opts = {}) {
                 try {
                     const url = await uploadFile(file);
                     selectedEventEvidenceDataUrl = url;
+                    selectedEventEvidenceName = file.name;
                 } catch (err) {
                     selectedEventEvidenceDataUrl = null;
+                    selectedEventEvidenceName = null;
                     evidenceInput.value = '';
                     eventEvidenceUploading = false;
                     evStatus.innerHTML = `<span style="color:#ef4444;">Error al subir: ${escapeHtml(err.message || 'inténtelo de nuevo')}</span>`;
@@ -428,13 +439,25 @@ export function openEventModal(container, eventObj, opts = {}) {
                     archList.innerHTML = '<span style="color:#9ca3af;">Sin archivos adjuntos.</span>';
                     return;
                 }
-                archList.innerHTML = selectedEventArchivos.map((u, i) => `<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">
-                    <span style="color:#10b981;">📎 Archivo ${i + 1}</span>
+                archList.innerHTML = selectedEventArchivos.map((a, i) => {
+                    const nombre = a.n || 'archivo';
+                    const nombreCorto = nombre.length > 42 ? nombre.slice(0, 42) + '…' : nombre;
+                    return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">
+                    <span class="arch-ver" data-idx="${i}" title="Ver archivo" style="cursor:pointer;flex:0 0 auto;line-height:0;">${miniaturaEvento(a.u)}</span>
+                    <span class="arch-ver" data-idx="${i}" title="${escapeHtml(nombre)}" style="color:#10b981;flex:1;min-width:0;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📎 ${escapeHtml(nombreCorto)}</span>
                     <a href="#" class="arch-ver" data-idx="${i}" style="color:#7c3aed;">Ver</a>
                     <a href="#" class="arch-quitar" data-idx="${i}" style="color:#ef4444;">Quitar</a>
-                </div>`).join('');
-                archList.querySelectorAll('.arch-ver').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(selectedEventArchivos[Number(a.getAttribute('data-idx'))]); }));
-                archList.querySelectorAll('.arch-quitar').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); selectedEventArchivos.splice(Number(a.getAttribute('data-idx')), 1); renderArchivos(); }));
+                </div>`;
+                }).join('');
+                archList.querySelectorAll('.arch-ver').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); openFileViewer(selectedEventArchivos[Number(a.getAttribute('data-idx'))].u); }));
+                archList.querySelectorAll('.arch-quitar').forEach(a => a.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    const idx = Number(a.getAttribute('data-idx'));
+                    const nom = selectedEventArchivos[idx]?.n || 'este archivo';
+                    if (!await confirmarEliminacion(`¿Quitar "${nom}"? Se aplicará al Guardar Cambios.`, { titulo: '🗑️ Quitar archivo', confirmLabel: 'Quitar' })) return;
+                    selectedEventArchivos.splice(idx, 1);
+                    renderArchivos();
+                }));
             }
             renderArchivos();
             archInput.addEventListener('change', () => {
@@ -443,12 +466,13 @@ export function openEventModal(container, eventObj, opts = {}) {
                 eventArchivosUploading = true;
                 archStatus.style.color = '#f59e0b';
                 archStatus.textContent = `⏳ Subiendo ${files.length} archivo(s)...`;
-                Promise.all(files.map(f => uploadFile(f))).then(urls => {
-                    selectedEventArchivos.push(...urls.filter(Boolean));
+                Promise.all(files.map(f => uploadFile(f).then(url => url ? { u: url, n: f.name } : null))).then(subidos => {
+                    const ok = subidos.filter(Boolean);
+                    selectedEventArchivos.push(...ok);
                     eventArchivosUploading = false;
                     archInput.value = '';
                     archStatus.style.color = '#10b981';
-                    archStatus.textContent = `✓ ${urls.filter(Boolean).length} archivo(s) agregado(s)`;
+                    archStatus.textContent = `✓ ${ok.length} archivo(s) agregado(s)`;
                     renderArchivos();
                 }).catch(() => {
                     eventArchivosUploading = false; archInput.value = '';
@@ -459,8 +483,8 @@ export function openEventModal(container, eventObj, opts = {}) {
 
             // Eliminar evento (solo al editar)
             const delBtn = overlay.querySelector('#modal-event-delete');
-            if (delBtn) delBtn.addEventListener('click', () => {
-                if (!confirm('¿Eliminar este evento? Esta acción no se puede deshacer.')) return;
+            if (delBtn) delBtn.addEventListener('click', async () => {
+                if (!await confirmarEliminacion('¿Eliminar este evento? Esta acción no se puede deshacer.', { titulo: '🗑️ Eliminar evento' })) return;
                 deleteClaimEvent(eventObj.id);
                 closeFormModal();
                 if (opts.onDone) { opts.onDone(); return; }
@@ -482,12 +506,12 @@ export function openEventModal(container, eventObj, opts = {}) {
             const diasEspera = diasEsperaStr ? parseInt(diasEsperaStr) : null;
             const tipoDias = form.querySelector('#modal-event-tipo-dias').value;
 
-            const archivosCsv = selectedEventArchivos.filter(Boolean).join(',');
+            const evidenciaPayload = selectedEventEvidenceDataUrl ? { u: selectedEventEvidenceDataUrl, n: selectedEventEvidenceName } : null;
             let result;
             if (editing) {
-                result = updateClaimEvent(eventObj.id, { reclamoId: claimId, fecha, descripcion, observacion, evidencia: selectedEventEvidenceDataUrl, archivos: archivosCsv, diasEspera, tipoDias });
+                result = updateClaimEvent(eventObj.id, { reclamoId: claimId, fecha, descripcion, observacion, evidencia: evidenciaPayload, archivos: selectedEventArchivos, diasEspera, tipoDias });
             } else {
-                result = addClaimEvent(claimId, fecha, descripcion, observacion, selectedEventEvidenceDataUrl, diasEspera, tipoDias, null, null, selectedEventArchivos);
+                result = addClaimEvent(claimId, fecha, descripcion, observacion, evidenciaPayload, diasEspera, tipoDias, null, null, selectedEventArchivos);
             }
 
             if (result.success) {
@@ -652,12 +676,12 @@ function renderEventTable(container, events, showClaimInfo) {
     });
 
     listContent.querySelectorAll('.delete-event-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const id = btn.getAttribute('data-id');
             const ev = getLatestEvents(9999).find(e => e.id === id);
             const fechaTxt = ev ? new Date(ev.fecha).toLocaleDateString('es-PE') : '';
             const label = ev ? `"${ev.descripcion || 'evento'}" (${fechaTxt})` : 'este evento';
-            if (!confirm(`¿Eliminar ${label}?\n\nLa eliminación quedará registrada en auditoría (quién y cuándo). Esta acción no se puede deshacer.`)) return;
+            if (!await confirmarEliminacion(`¿Eliminar ${label}? La eliminación quedará registrada en auditoría (quién y cuándo). Esta acción no se puede deshacer.`, { titulo: '🗑️ Eliminar evento' })) return;
             deleteClaimEvent(id);
             const mainClaimId = container.querySelector('#event-claim-id')?.value;
             if (mainClaimId) refreshEventList(container, mainClaimId);
@@ -679,6 +703,17 @@ function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+/** Miniatura de un archivo: imagen real si es foto, ícono 📄 si es PDF/otro. */
+function miniaturaEvento(url) {
+    if (!url) return '';
+    const clean = String(url).split('?')[0].split('#')[0].toLowerCase();
+    const esImg = /\.(jpg|jpeg|png|webp|gif)$/.test(clean);
+    const base = 'width:44px;height:44px;border-radius:6px;border:1px solid #334155;flex:0 0 auto;';
+    return esImg
+        ? `<img src="${escapeHtml(url)}" alt="archivo" style="${base}object-fit:cover;background:#fff;">`
+        : `<span style="${base}display:inline-flex;align-items:center;justify-content:center;font-size:1.2rem;background:#111827;">📄</span>`;
 }
 
 function formatDate(dateStr) {

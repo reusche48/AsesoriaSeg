@@ -38,6 +38,7 @@ function verHistorialEnEventos(claimId) {
 
 // Holds evidence URL between file upload and form submit
 let _alertEvidenceUrl = null;
+let _alertEvidenceName = null;
 // Filtro de cliente activo en la sección Alertas (se conserva entre re-renders)
 let alertClientFilter = '';
 // Último cliente activo (topbar) aplicado como filtro — para aplicarlo UNA sola vez
@@ -543,6 +544,7 @@ export function openClaimEventFormModal(container, reclamoId, eventoOrigenId, on
     const pad = n => String(n).padStart(2, '0');
     const defaultDateTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     _alertEvidenceUrl = null;
+    _alertEvidenceName = null;
     const archivosAdjuntos = [];
     let archivoSeq = 0;
 
@@ -618,19 +620,21 @@ export function openClaimEventFormModal(container, reclamoId, eventoOrigenId, on
             const statusDiv = overlay.querySelector('#modal-alerta-evidencia-status');
             evidenciaInput.addEventListener('change', () => {
                 const file = evidenciaInput.files[0];
-                if (!file) { _alertEvidenceUrl = null; statusDiv.textContent = ''; return; }
+                if (!file) { _alertEvidenceUrl = null; _alertEvidenceName = null; statusDiv.textContent = ''; return; }
                 statusDiv.textContent = 'Subiendo archivo...';
                 statusDiv.style.color = '#9ca3af';
                 uploadFile(file)
                     .then(url => {
                         _alertEvidenceUrl = url;
-                        statusDiv.textContent = '✓ Archivo subido correctamente';
+                        _alertEvidenceName = file.name;
+                        statusDiv.textContent = `✓ ${file.name}`;
                         statusDiv.style.color = '#10b981';
                     })
                     .catch(() => {
                         statusDiv.textContent = 'Error al subir el archivo.';
                         statusDiv.style.color = '#ef4444';
                         _alertEvidenceUrl = null;
+                        _alertEvidenceName = null;
                     });
             });
 
@@ -695,7 +699,7 @@ export function openClaimEventFormModal(container, reclamoId, eventoOrigenId, on
             clearModalErrors();
             if (archivosAdjuntos.some(a => a.status === 'subiendo')) { showModalAlert('Espere a que terminen de subir los archivos.', 'error'); return; }
             if (archivosAdjuntos.some(a => a.status === 'error')) { showModalAlert('Hay archivos con error. Quítalos con la × antes de registrar.', 'error'); return; }
-            const archivosUrls = archivosAdjuntos.filter(a => a.status === 'ok' && a.url).map(a => a.url);
+            const archivosUrls = archivosAdjuntos.filter(a => a.status === 'ok' && a.url).map(a => ({ u: a.url, n: a.name }));
             const diasStr = form.querySelector('#modal-alerta-dias').value;
             const dias = diasStr ? parseInt(diasStr) : null;
             const result = addClaimEvent(
@@ -703,7 +707,7 @@ export function openClaimEventFormModal(container, reclamoId, eventoOrigenId, on
                 form.querySelector('#modal-alerta-fecha').value,
                 form.querySelector('#modal-alerta-descripcion').value,
                 form.querySelector('#modal-alerta-observacion').value,
-                _alertEvidenceUrl,
+                _alertEvidenceUrl ? { u: _alertEvidenceUrl, n: _alertEvidenceName } : null,
                 dias,
                 dias ? form.querySelector('#modal-alerta-tipodias').value : null,
                 eventoOrigenId,

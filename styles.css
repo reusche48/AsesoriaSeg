@@ -446,6 +446,13 @@ body {
 }
 
 /* === Tables === */
+/* Contenedor con scroll horizontal para tablas anchas (clave en celular: sin esto
+   las columnas de la derecha se cortaban porque body/html tienen overflow-x:hidden). */
+.table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+}
 .data-table {
     width: 100%;
     border-collapse: collapse;

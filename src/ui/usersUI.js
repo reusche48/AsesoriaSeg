@@ -285,7 +285,7 @@ function renderUserList(container) {
             const userId = btn.getAttribute('data-id');
             const user = users.find(u => u.id === userId);
             const nombre = user ? user.usuario : '';
-            if (confirm(`¿Quitar el código de seguridad de "${nombre}"? Podrá entrar solo con su contraseña y configurar uno nuevo.`)) {
+            if (await confirmarEliminacion(`¿Quitar el código de seguridad de "${nombre}"? Podrá entrar solo con su contraseña y configurar uno nuevo.`, { titulo: '🔒 Quitar código', confirmLabel: 'Quitar' })) {
                 const ok = await resetUserSecurityCode(userId);
                 alert(ok ? 'Código de seguridad quitado.' : 'No se pudo quitar el código.');
             }
@@ -296,7 +296,7 @@ function renderUserList(container) {
             const userId = btn.getAttribute('data-id');
             const user = users.find(u => u.id === userId);
             const nombre = user ? user.usuario : '';
-            if (confirm(`¿Resetear la contraseña de "${nombre}" a 4321?`)) {
+            if (await confirmarEliminacion(`¿Resetear la contraseña de "${nombre}" a 4321?`, { titulo: '🔑 Resetear contraseña', confirmLabel: 'Resetear', confirmColor: '#b45309' })) {
                 try {
                     const res = await fetch(`${API_BASE}?action=resetPassword`, {
                         method: 'POST',
