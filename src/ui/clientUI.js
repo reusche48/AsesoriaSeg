@@ -8,7 +8,7 @@ import { openFileViewer, auditLinkHtml } from '../app.js';
 import { openFormModal, closeFormModal, showModalAlert, showModalFieldErrors, clearModalErrors } from './modalHelper.js';
 import { uploadFile } from '../storage.js';
 import { confirmarEliminacion } from '../utils.js';
-import { setActiveClient } from '../state/clientContext.js';
+import { setActiveClient, getActiveClient } from '../state/clientContext.js';
 
 let editingClientId = null;
 let pendingEditClientId = null;
@@ -49,6 +49,15 @@ export function renderClientSection(container) {
     container.querySelector('#btn-add-client').addEventListener('click', () => openClientForm(container, null));
     setupSearchHandlers(container);
     showDefaultClients(container);
+
+    // Si ya estás trabajando con un cliente activo, pre-filtrar la lista por su DNI
+    // para que aparezca directo (y puedas darle editar) en vez de mostrar a todos.
+    // Basta con borrar el buscador para volver a ver la lista completa.
+    const activo = getActiveClient();
+    if (activo && activo.dni) {
+        const input = container.querySelector('#client-search-input');
+        if (input) { input.value = activo.dni; triggerSearch(container); }
+    }
 
     // Si se entró con un cliente pre-seleccionado (ej. desde la Guía), abrir su edición.
     if (pendingEditClientId) {
