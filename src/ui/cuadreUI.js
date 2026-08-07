@@ -6,7 +6,7 @@ import {
     getCuadreByRecarga, getOrCreateCuadre, setTipoCambio, bancosDeRecarga, esInformativo,
     getGastos, addGasto, updateGasto, deleteGasto, deleteCuadre, computeSaldo,
 } from '../services/cuadreService.js';
-import { getAllRecargas, searchRecargas, getRecarga } from '../services/rechargeService.js';
+import { getAllRecargas, searchRecargas, getRecarga, getItems } from '../services/rechargeService.js';
 import { uploadFile, loadCollections } from '../storage.js';
 import { startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
 import { openFileViewer } from '../app.js';
@@ -25,6 +25,9 @@ function cuadreSignature() {
     const parts = [];
     for (const r of getAllRecargas()) {
         const c = getCuadreByRecarga(r.id);
+        // Los montos de la recarga afectan el cuadre (tipo/banco/destino), así que entran
+        // en la huella: si no, un cambio hecho en Recargas no re-pintaría el cuadre.
+        for (const it of getItems(r.id)) parts.push(`i${it.id}:${it.monto}:${it.moneda}:${it.bancoId}:${it.tipo || ''}:${it.bancoDestinoId || ''}`);
         if (!c) { parts.push('r' + r.id + ':nc'); continue; }
         parts.push(`c${c.id}:${c.reclamoIds || ''}:${c.tipoCambio || ''}`);
         for (const g of getGastos(c.id)) parts.push('g' + g.id + ':' + g.monto + ':' + (g.informativo ? '1' : '0') + ':' + (g.bancoId || '') + ':' + (g.evidencia || ''));
@@ -122,13 +125,18 @@ function renderEditor(container, recarga) {
     const bancosHtml = r.porBanco.length === 0 ? '<div style="color:#6b7280;padding:0.4rem 0.6rem;">Sin recargas registradas.</div>'
         : `<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
             <thead><tr style="color:#9ca3af;text-align:left;">
-                <th style="padding:0.3rem 0.5rem;">Banco</th><th style="padding:0.3rem 0.5rem;text-align:right;">Recarga</th>
+                <th style="padding:0.3rem 0.5rem;">Banco</th><th style="padding:0.3rem 0.5rem;text-align:right;">Disponible</th>
                 <th style="padding:0.3rem 0.5rem;text-align:right;">Gastos</th><th style="padding:0.3rem 0.5rem;text-align:right;">Dif.</th></tr></thead>
             <tbody>${r.porBanco.map(b => `<tr style="border-top:1px solid #1f2937;">
                 <td style="padding:0.3rem 0.5rem;color:#e2e8f0;">${esc(b.bancoNombre)}</td>
-                <td style="padding:0.3rem 0.5rem;text-align:right;color:#34d399;">${money(b.recargaSoles)}</td>
+                <td style="padding:0.3rem 0.5rem;text-align:right;color:${b.recargaSoles < 0 ? '#f87171' : '#34d399'};">${money(b.recargaSoles)}</td>
                 <td style="padding:0.3rem 0.5rem;text-align:right;color:#fbbf24;">${money(b.gastosSoles)}</td>
-                <td style="padding:0.3rem 0.5rem;text-align:right;color:${Math.abs(b.diff) < 0.005 ? '#34d399' : '#e2e8f0'};">${money(b.diff)}</td></tr>`).join('')}</tbody></table>`;
+                <td style="padding:0.3rem 0.5rem;text-align:right;color:${Math.abs(b.diff) < 0.005 ? '#34d399' : '#e2e8f0'};">${money(b.diff)}</td></tr>`).join('')}
+                <tr style="border-top:1.5px solid #374151;font-weight:700;">
+                <td style="padding:0.35rem 0.5rem;color:#9ca3af;">TOTAL</td>
+                <td style="padding:0.35rem 0.5rem;text-align:right;color:#e2e8f0;">${money(r.recargaSoles)}</td>
+                <td style="padding:0.35rem 0.5rem;text-align:right;color:#e2e8f0;">${money(r.gastosSoles)}</td>
+                <td style="padding:0.35rem 0.5rem;text-align:right;color:${Math.abs(r.saldo) < 0.005 ? '#34d399' : '#e2e8f0'};">${money(r.saldo)}</td></tr></tbody></table>`;
 
     const bancoNombreDe = (id) => id ? (bankRepository.getById(id)?.nombre || '—') : null;
     const gastosHtml = gastos.length === 0 ? '<div style="color:#6b7280;padding:0.4rem 0.6rem;">Sin gastos registrados.</div>'
@@ -157,7 +165,9 @@ function renderEditor(container, recarga) {
                 </div>
                 <div style="text-align:right;">
                     <div style="color:${saldoColor};font-weight:800;font-size:1.15rem;">${esc(saldoTxt)}</div>
-                    <div style="color:#6b7280;font-size:0.8rem;">Recarga ${money(r.recargaSoles)} − Gastos ${money(r.gastosSoles)}</div>
+                    <div style="color:#6b7280;font-size:0.8rem;">${r.salidasSoles > 0
+                        ? `Ingresos ${money(r.ingresosSoles)} − Salidas ${money(r.salidasSoles)} − Gastos ${money(r.gastosSoles)}`
+                        : `Recarga ${money(r.recargaSoles)} − Gastos ${money(r.gastosSoles)}`}</div>
                 </div>
             </div>
             <div style="padding:0.5rem 0.7rem;display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;border-top:1px solid #1f2937;">
@@ -171,7 +181,7 @@ function renderEditor(container, recarga) {
         </div>
 
         <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:0.5rem 0.6rem;margin-bottom:1rem;">
-            <div style="color:#9ca3af;font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;padding:0.3rem 0.5rem;">Desglose por banco (recarga − gastos)</div>
+            <div style="color:#9ca3af;font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;padding:0.3rem 0.5rem;">Desglose por banco (disponible − gastos)</div>
             ${bancosHtml}
         </div>
 

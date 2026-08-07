@@ -6,6 +6,7 @@ import {
     getAllRecargas, searchRecargas, getRecarga,
     createRecarga, updateRecarga, deleteRecarga,
     getItems, addItem, updateItem, deleteItem, totalesPorMoneda,
+    TIPOS_ITEM, tipoDeItem, resumenPorMoneda, distribucionPorBanco,
 } from '../services/rechargeService.js';
 import { uploadFile, loadCollections } from '../storage.js';
 import { startAutoRefresh, stopAutoRefresh } from './autoRefresh.js';
@@ -23,6 +24,13 @@ let uploading = false;
 // Cliente elegido en el modal "Nueva recarga".
 let nuevaClienteId = null;
 
+/** Colores/etiqueta de cada tipo de movimiento en la lista. */
+const TIPO_CFG = {
+    ingreso: { badge: '⬇ Ingreso', color: '#34d399', bg: '#064e3b' },
+    interno: { badge: '🔁 Interno', color: '#93c5fd', bg: '#1e3a8a' },
+    salida: { badge: '⬆ Salida', color: '#fca5a5', bg: '#7f1d1d' },
+};
+
 // ── Entrada / auto-refresco ────────────────────────────────
 
 /** Huella de datos para detectar cambios de otros dispositivos. */
@@ -31,7 +39,7 @@ function rechargeSignature() {
     for (const r of getAllRecargas()) {
         parts.push(`${r.id}:${r.nombre || ''}:${r.fecha || ''}`);
         for (const it of getItems(r.id)) {
-            parts.push(`i${it.id}:${it.monto}:${it.moneda}:${it.bancoId}:${it.evidencia || ''}`);
+            parts.push(`i${it.id}:${it.monto}:${it.moneda}:${it.bancoId}:${it.tipo || ''}:${it.bancoDestinoId || ''}:${it.destinoDetalle || ''}:${it.evidencia || ''}`);
         }
     }
     return parts.join('|');
@@ -208,17 +216,48 @@ function renderEditor(container, recarga) {
     const cli = clientRepository.getById(recarga.clienteId);
     const nombreCli = cli ? `${cli.nombreCompleto || ''} ${cli.apellidosCompletos || ''}`.trim() : '—';
     const items = getItems(recarga.id);
-    const tot = totalesPorMoneda(recarga.id);
-    const totTxt = Object.keys(tot).length ? Object.entries(tot).map(([m, n]) => money(n, m)).join('  ·  ') : 'Sin montos';
+    const resumen = resumenPorMoneda(recarga.id);
+    // Cabecera: si hay salidas se detalla ingresos/salidas; si no, se ve igual que siempre.
+    const totTxt = Object.keys(resumen).length
+        ? Object.entries(resumen).map(([m, r]) => money(r.disponible, m)).join('  ·  ')
+        : 'Sin montos';
+    const detalleTxt = Object.entries(resumen)
+        .filter(([, r]) => r.salidas > 0)
+        .map(([m, r]) => `Ingresos ${money(r.ingresos, m)} · Salidas ${money(r.salidas, m)}`)
+        .join('  ·  ');
+    const hayNegativo = Object.values(resumen).some(r => r.disponible < 0);
+
+    // Cuánto quedó en cada banco tras los movimientos internos y las salidas.
+    const distrib = distribucionPorBanco(recarga.id);
+    const distribHtml = distrib.length === 0 ? '' : `
+        <div style="padding:0.5rem 0.7rem;border-top:1px solid #1f2937;">
+            <div style="color:#9ca3af;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;margin-bottom:0.35rem;">Cuánto hay en cada banco</div>
+            ${distrib.map(b => `<div style="display:flex;justify-content:space-between;gap:0.75rem;padding:2px 0;font-size:0.87rem;">
+                <span style="color:#e2e8f0;">🏦 ${esc(b.nombre)}</span>
+                <span style="font-weight:700;white-space:nowrap;">${Object.entries(b.montos)
+                    .map(([m, n]) => `<span style="color:${n < 0 ? '#f87171' : '#34d399'};">${esc(money(n, m))}</span>`)
+                    .join(' · ')}</span>
+            </div>`).join('')}
+        </div>`;
 
     const itemsHtml = items.length === 0
-        ? '<div class="empty-state">Aún no hay montos. Agrega el primero con "➕ Agregar monto".</div>'
+        ? '<div class="empty-state">Aún no hay movimientos. Agrega el primero con "➕ Agregar movimiento".</div>'
         : items.map(it => {
             const banco = bankRepository.getById(it.bancoId)?.nombre || '—';
+            const tipo = tipoDeItem(it);
+            const cfg = TIPO_CFG[tipo];
+            const destino = tipo === 'interno'
+                ? ` → ${esc(bankRepository.getById(it.bancoDestinoId)?.nombre || '—')}`
+                : tipo === 'salida' ? ` → ${esc(it.destinoDetalle || 'tercero')}` : '';
+            const signo = tipo === 'salida' ? '− ' : '';
             return `<div style="display:flex;align-items:center;gap:0.6rem;padding:0.55rem 0.7rem;border-top:1px solid #1f2937;flex-wrap:wrap;">
                 ${miniatura(it.evidencia)}
                 <div style="flex:1;min-width:160px;">
-                    <div style="color:#f1f5f9;">${esc(banco)} <span style="color:#34d399;font-weight:700;">${esc(money(it.monto, it.moneda))}</span></div>
+                    <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                        <span style="background:${cfg.bg};color:${cfg.color};border-radius:99px;padding:1px 8px;font-size:0.7rem;font-weight:700;white-space:nowrap;">${cfg.badge}</span>
+                        <span style="color:#f1f5f9;">${esc(banco)}${destino}</span>
+                        <span style="color:${cfg.color};font-weight:700;">${signo}${esc(money(it.monto, it.moneda))}</span>
+                    </div>
                     <div style="color:#9ca3af;font-size:0.8rem;">${esc(formatDate(it.fecha))}${it.observaciones ? ' · ' + esc(it.observaciones) : ''}</div>
                 </div>
                 <button type="button" class="btn-icon primary rc-item-edit" data-id="${esc(it.id)}" title="Editar">✏️</button>
@@ -236,17 +275,19 @@ function renderEditor(container, recarga) {
                     ${recarga.observaciones ? `<div style="color:#9ca3af;font-size:0.82rem;margin-top:2px;">${esc(recarga.observaciones)}</div>` : ''}
                 </div>
                 <div style="text-align:right;">
-                    <div style="color:#34d399;font-weight:700;font-size:1.05rem;">${esc(totTxt)}</div>
+                    ${detalleTxt ? `<div style="color:#9ca3af;font-size:0.78rem;">${esc(detalleTxt)}</div>` : ''}
+                    <div style="color:${hayNegativo ? '#f87171' : '#34d399'};font-weight:700;font-size:1.05rem;">${detalleTxt ? 'Disponible ' : ''}${esc(totTxt)}</div>
                     <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end;">
                         <button type="button" id="rc-editar-cab" class="btn-icon primary" title="Editar cabecera">✏️</button>
                         <button type="button" id="rc-borrar" class="btn-icon danger" title="Eliminar recarga">🗑️</button>
                     </div>
                 </div>
             </div>
+            ${distribHtml}
             <div style="padding:0.4rem 0.5rem;">
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0.5rem;">
-                    <span style="color:#9ca3af;font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;">Montos</span>
-                    <button type="button" id="rc-add-item" class="btn btn-primary" style="padding:0.25rem 0.7rem;font-size:0.82rem;">➕ Agregar monto</button>
+                    <span style="color:#9ca3af;font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;">Montos y movimientos</span>
+                    <button type="button" id="rc-add-item" class="btn btn-primary" style="padding:0.25rem 0.7rem;font-size:0.82rem;">➕ Agregar movimiento</button>
                 </div>
                 ${itemsHtml}
             </div>
@@ -315,15 +356,31 @@ function openItemModal(container, recarga, item) {
         `<option value="${esc(b.id)}" ${item && item.bancoId === b.id ? 'selected' : ''}>${esc(b.nombre)}</option>`).join('');
     const monedaOpts = MONEDAS.map(m =>
         `<option value="${m}" ${(item ? item.moneda : 'PEN') === m ? 'selected' : ''}>${m === 'USD' ? 'USD ($)' : 'PEN (S/)'}</option>`).join('');
+    const tipoActual = item ? tipoDeItem(item) : 'ingreso';
+    const tipoOpts = TIPOS_ITEM.map(t =>
+        `<option value="${t.id}" ${tipoActual === t.id ? 'selected' : ''}>${esc(t.label)}</option>`).join('');
+    // Banco destino (solo movimiento interno): mismas opciones que el origen.
+    const destOpts = `<option value="">-- Seleccione --</option>` + bancos.map(b =>
+        `<option value="${esc(b.id)}" ${item && item.bancoDestinoId === b.id ? 'selected' : ''}>${esc(b.nombre)}</option>`).join('');
 
     openFormModal({
-        title: item ? 'Editar monto' : 'Agregar monto',
+        title: item ? 'Editar movimiento' : 'Agregar movimiento',
         submitLabel: item ? 'Guardar' : 'Agregar',
         html: `
             ${bancos.length === 0 ? '<div style="color:#f59e0b;margin-bottom:0.6rem;">Este cliente no tiene bancos con tarjeta registrada.</div>' : ''}
+            <div class="form-group"><label>Tipo de movimiento *</label><select id="rc-i-tipo">${tipoOpts}</select></div>
             <div class="form-row">
-                <div class="form-group"><label>Banco *</label><select id="rc-i-banco" required>${bankOpts}</select></div>
+                <div class="form-group"><label id="rc-i-banco-lbl">Banco *</label><select id="rc-i-banco" required>${bankOpts}</select></div>
                 <div class="form-group"><label>Fecha *</label><input type="date" id="rc-i-fecha" value="${esc(item?.fecha || hoy)}" required></div>
+            </div>
+            <div class="form-group" id="rc-i-row-dest" style="display:none;">
+                <label>Banco de destino *</label><select id="rc-i-banco-dest">${destOpts}</select>
+                <div style="font-size:0.75rem;color:#6b7280;margin-top:2px;">El total de la recarga no cambia: la plata solo se reparte entre bancos.</div>
+            </div>
+            <div class="form-group" id="rc-i-row-tercero" style="display:none;">
+                <label>¿A quién se envió? *</label>
+                <input type="text" id="rc-i-destino-detalle" maxlength="255" value="${esc(item?.destinoDetalle || '')}" placeholder="Ej: Interbank de Juan Pérez">
+                <div style="font-size:0.75rem;color:#6b7280;margin-top:2px;">Esta plata sale del total por justificar. No la registres además como gasto en el Cuadre.</div>
             </div>
             <div class="form-row">
                 <div class="form-group"><label>Monto *</label><input type="number" id="rc-i-monto" min="0" step="0.01" value="${esc(item?.monto ?? '')}" placeholder="Ej: 150.00" required></div>
@@ -336,6 +393,21 @@ function openItemModal(container, recarga, item) {
             </div>
             <div class="form-group"><label>Observaciones</label><textarea id="rc-i-obs" rows="2">${esc(item?.observaciones || '')}</textarea></div>`,
         onOpen: (overlay) => {
+            // Mostrar solo los campos del tipo elegido (sin `required` en los ocultos:
+            // bloquearían el envío sin explicar por qué; la validación real va en el servicio).
+            const tipoSel = overlay.querySelector('#rc-i-tipo');
+            const rowDest = overlay.querySelector('#rc-i-row-dest');
+            const rowTercero = overlay.querySelector('#rc-i-row-tercero');
+            const bancoLbl = overlay.querySelector('#rc-i-banco-lbl');
+            const sync = () => {
+                const t = tipoSel.value;
+                rowDest.style.display = t === 'interno' ? '' : 'none';
+                rowTercero.style.display = t === 'salida' ? '' : 'none';
+                bancoLbl.textContent = t === 'ingreso' ? 'Banco *' : 'Banco de origen *';
+            };
+            tipoSel.addEventListener('change', sync);
+            sync();
+
             const input = overlay.querySelector('#rc-i-evidencia');
             const status = overlay.querySelector('#rc-i-evidencia-status');
             input.addEventListener('change', () => {
@@ -353,6 +425,9 @@ function openItemModal(container, recarga, item) {
             if (uploading) { showModalAlert('Espere a que termine de subir la evidencia.', 'error'); return; }
             const data = {
                 bancoId: form.querySelector('#rc-i-banco').value,
+                tipo: form.querySelector('#rc-i-tipo').value,
+                bancoDestinoId: form.querySelector('#rc-i-banco-dest').value || null,
+                destinoDetalle: form.querySelector('#rc-i-destino-detalle').value,
                 monto: form.querySelector('#rc-i-monto').value,
                 moneda: form.querySelector('#rc-i-moneda').value,
                 fecha: form.querySelector('#rc-i-fecha').value,

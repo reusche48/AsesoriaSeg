@@ -6,6 +6,7 @@ import { incidentRepository } from '../repositories/incidentRepository.js';
 import { claimRepository } from '../repositories/claimRepository.js';
 import { bankRepository } from '../repositories/bankRepository.js';
 import { clientRepository } from '../repositories/clientRepository.js';
+import { deltasDeItem } from './rechargeService.js';
 
 /**
  * Servicio de "Cuadre de Cuentas": concilia una recarga restándole los reclamos no
@@ -140,13 +141,18 @@ export function deleteGasto(id) {
     return { success: true };
 }
 
-/** Bancos presentes en la recarga (para asignar gastos por banco). */
+/**
+ * Bancos presentes en la recarga (para asignar gastos por banco). Incluye los bancos que
+ * solo RECIBIERON un movimiento interno: ahí también hay plata que justificar.
+ */
 export function bancosDeRecarga(recargaId) {
     const items = rechargeItemRepository.findByRechargeId(recargaId);
     const map = new Map();
     for (const i of items) {
-        if (!map.has(i.bancoId)) {
-            map.set(i.bancoId, { id: i.bancoId, nombre: bankRepository.getById(i.bancoId)?.nombre || '—' });
+        for (const d of deltasDeItem(i).porBanco) {
+            if (!map.has(d.bancoId)) {
+                map.set(d.bancoId, { id: d.bancoId, nombre: bankRepository.getById(d.bancoId)?.nombre || '—' });
+            }
         }
     }
     return [...map.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -155,10 +161,13 @@ export function bancosDeRecarga(recargaId) {
 // ── Cálculo del saldo ──────────────────────────────────────
 
 /**
- * Calcula el saldo del cuadre en soles: recarga − gastos (los gastos informativos
- * NO suman ni restan). Los reclamos ya no intervienen en el saldo.
- * @returns {{recargaSoles, reclamosSoles, gastosSoles, saldo, cuadrado, faltaTipoCambio,
- *            hayUSD, porBanco: Array<{bancoId, bancoNombre, recargaSoles, gastosSoles, diff}>}}
+ * Calcula el saldo del cuadre en soles: disponible − gastos (los gastos informativos
+ * NO suman ni restan). Disponible = ingresos − salidas a terceros; los movimientos
+ * internos no cambian el total, solo reparten entre bancos.
+ * Los reclamos ya no intervienen en el saldo.
+ * @returns {{recargaSoles, ingresosSoles, salidasSoles, reclamosSoles, gastosSoles, saldo,
+ *            cuadrado, faltaTipoCambio, hayUSD,
+ *            porBanco: Array<{bancoId, bancoNombre, recargaSoles, gastosSoles, diff}>}}
  */
 export function computeSaldo(cuadre) {
     const tc = Number(cuadre?.tipoCambio) || null;
@@ -174,7 +183,15 @@ export function computeSaldo(cuadre) {
         return n;
     };
 
-    const recargaSoles = items.reduce((s, i) => s + aSoles(i.monto, i.moneda), 0);
+    // Total disponible = ingresos − salidas (el signo lo da deltasDeItem, no el monto).
+    let ingresosSoles = 0, salidasSoles = 0;
+    for (const i of items) {
+        const m = aSoles(i.monto, i.moneda);
+        const coef = deltasDeItem(i).coefTotal;
+        if (coef > 0) ingresosSoles += m;
+        else if (coef < 0) salidasSoles += m;
+    }
+    const recargaSoles = ingresosSoles - salidasSoles;
     const gastosSoles = gastos.reduce((s, g) => s + aSoles(g.monto, g.moneda), 0);
 
     // Desglose por banco: recarga (de los items) menos gastos (los gastos reales con bancoId)
@@ -190,7 +207,10 @@ export function computeSaldo(cuadre) {
         }
         return bancosMap.get(bancoId);
     };
-    for (const i of items) ensure(i.bancoId).recargaSoles += aSoles(i.monto, i.moneda);
+    for (const i of items) {
+        const m = aSoles(i.monto, i.moneda);
+        for (const d of deltasDeItem(i).porBanco) ensure(d.bancoId).recargaSoles += d.coef * m;
+    }
     for (const g of gastos) { if (g.bancoId) ensure(g.bancoId).gastosSoles += aSoles(g.monto, g.moneda); }
 
     const faltaTipoCambio = hayUSD && !tc;
@@ -198,7 +218,8 @@ export function computeSaldo(cuadre) {
     const cuadrado = !faltaTipoCambio && Math.abs(saldo) < EPS;
 
     return {
-        recargaSoles, reclamosSoles: 0, gastosSoles, saldo, cuadrado, faltaTipoCambio, hayUSD,
+        recargaSoles, ingresosSoles, salidasSoles,
+        reclamosSoles: 0, gastosSoles, saldo, cuadrado, faltaTipoCambio, hayUSD,
         porBanco: [...bancosMap.values()]
             .map(b => ({ ...b, diff: b.recargaSoles - b.gastosSoles }))
             .sort((a, b) => a.bancoNombre.localeCompare(b.bancoNombre)),

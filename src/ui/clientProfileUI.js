@@ -160,8 +160,7 @@ function renderProfile(container, clientId, sections) {
         <div class="section profile-section">
             <h3 class="profile-heading">👤 Datos Personales</h3>
             <div class="profile-grid">
-                <div class="profile-field"><span class="profile-label">Nombre:</span> ${esc(client.nombreCompleto)}</div>
-                <div class="profile-field"><span class="profile-label">Apellidos:</span> ${esc(client.apellidosCompletos)}</div>
+                <div class="profile-field" style="grid-column:1/-1;"><span class="profile-label">Nombre completo:</span> ${esc(`${client.nombreCompleto || ''} ${client.apellidosCompletos || ''}`.trim())}</div>
                 <div class="profile-field"><span class="profile-label">DNI:</span> ${esc(client.dni)}</div>
                 <div class="profile-field"><span class="profile-label">Fecha Nacimiento:</span> ${formatDate(client.fechaNacimiento)}</div>
                 <div class="profile-field"><span class="profile-label">Teléfono 1:</span> ${esc(client.telefono1 || '-')}</div>
