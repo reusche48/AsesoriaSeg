@@ -11,6 +11,7 @@ import { renderInsuranceSection } from './ui/insuranceUI.js';
 import { renderCoverageSection } from './ui/coverageUI.js';
 import { renderIncidentSection } from './ui/incidentUI.js';
 import { renderClaimSection } from './ui/claimUI.js';
+import { renderClaimEventSection } from './ui/claimEventUI.js';
 import { renderPendingClaimsSection } from './ui/pendingClaimsUI.js';
 import { renderTrackingSection } from './ui/trackingUI.js';
 import { renderAlertsSection } from './ui/alertsUI.js';
@@ -41,6 +42,7 @@ const routes = {
     coberturas: renderCoverageSection,
     siniestros: renderIncidentSection,
     reclamos: renderClaimSection,
+    eventos: renderClaimEventSection,
     pendientes: renderPendingClaimsSection,
     seguimiento: renderTrackingSection,
     alertas: renderAlertsSection,
@@ -73,6 +75,7 @@ const NAV_LABELS = {
     coberturas:        `${ico('<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><line x1="13" y1="8" x2="21" y2="8"/><line x1="13" y1="18" x2="21" y2="18"/>')} Coberturas`,
     siniestros:        `${ico('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>')} Siniestros`,
     reclamos:          `${ico('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>')} Reclamos`,
+    eventos:           `${ico('<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>')} Eventos`,
     pendientes:        `${ico('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>')} Pendientes`,
     seguimiento:       `${ico('<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>')} Seguimiento`,
     usuarios:          `${ico('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>')} Usuarios`,
@@ -99,6 +102,7 @@ const SIDEBAR_ORDER = [
     'seguros',
     'coberturas',
     'reclamos',
+    'eventos',
     'plantillasPasos',
     'pagos',
     'vuelta',
