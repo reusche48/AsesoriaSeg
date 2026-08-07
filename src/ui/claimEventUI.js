@@ -83,11 +83,21 @@ export function renderClaimEventSection(container) {
                     <button type="button" class="btn btn-primary" id="event-add-btn">➕ Agregar Evento</button>
                 </div>
             </div>
+            <div style="margin-bottom:1rem;">
+                <label for="event-text-search" style="display:block;font-size:0.82rem;margin-bottom:0.2rem;color:#9ca3af;">🔎 Búsqueda general de eventos — por descripción, observación, cliente o banco (en todos los clientes)</label>
+                <input type="text" id="event-text-search" placeholder="Ej: documento interbank" autocomplete="off" style="width:100%;padding:0.5rem 0.75rem;border:1px solid #374151;border-radius:6px;background:#1f2937;color:#f1f5f9;font-size:0.9rem;">
+            </div>
             <div id="event-list-content"></div>
         </div>
     `;
 
     setupClaimAutocomplete(container);
+    // Búsqueda general por texto en TODOS los eventos (>=3 letras). Al vaciarla, vuelve a la vista actual.
+    container.querySelector('#event-text-search').addEventListener('input', (e) => {
+        const q = e.target.value.trim();
+        if (q.length >= 3) showTextSearch(container, q);
+        else _refreshCurrentEventView(container);
+    });
     container.querySelector('#event-add-btn').addEventListener('click', () => openEventModal(container, null));
     container.querySelector('#event-export-btn').addEventListener('click', () => exportEvents(container));
     container.querySelector('#event-filter-desde').addEventListener('change', (e) => { eventFilterDesde = e.target.value || null; _refreshCurrentEventView(container); });
@@ -96,9 +106,10 @@ export function renderClaimEventSection(container) {
         eventFilterDesde = null; eventFilterHasta = null;
         container.querySelector('#event-filter-desde').value = '';
         container.querySelector('#event-filter-hasta').value = '';
-        // Limpiar también el reclamo enfocado para ver todos los eventos
+        // Limpiar también el reclamo enfocado y la búsqueda general para ver todos los eventos
         container.querySelector('#event-claim-search').value = '';
         container.querySelector('#event-claim-id').value = '';
+        container.querySelector('#event-text-search').value = '';
         clearEventFocusClaim();
         showLatestEvents(container);
     });
@@ -150,9 +161,28 @@ function showEventsForClient(container, clientId) {
 }
 
 function _refreshCurrentEventView(container) {
+    const texto = container.querySelector('#event-text-search')?.value?.trim() || '';
+    if (texto.length >= 3) { showTextSearch(container, texto); return; }
     const claimId = container.querySelector('#event-claim-id')?.value;
     if (claimId) refreshEventList(container, claimId);
     else showLatestEvents(container);
+}
+
+/**
+ * Búsqueda general de eventos por texto en TODOS los clientes. Busca en la descripción,
+ * la observación, el paso, el cliente y el banco. Con varias palabras exige que estén
+ * TODAS (AND): "documento interbank" trae eventos que mencionan ambas.
+ */
+function showTextSearch(container, query) {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const all = applyDateFilter(claimEventRepository.getAll());
+    const matches = all.filter(ev => {
+        const claim = claimRepository.getById(ev.reclamoId);
+        const info = claim ? buildClaimLabel(claim) : { clientLabel: '', bankLabel: '' };
+        const texto = `${ev.descripcion || ''} ${ev.observacion || ''} ${pasoLabel(ev)} ${info.clientLabel || ''} ${info.bankLabel || ''}`.toLowerCase();
+        return words.every(w => texto.includes(w));
+    }).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    renderEventTable(container, matches, true);
 }
 
 /** Nombre del paso del trámite al que pertenece el evento (o "—" si no viene de un paso). */
